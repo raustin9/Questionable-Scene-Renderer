@@ -81,6 +81,8 @@ fn fs_main(
 //  result += vec3(0.2);
 
 //  return vec4(result, 1.0);
-    return vec4(normal, 1.0);
+    
+    return vec4(0.2, 0.3, 0.5, 1.0);
+    // return vec4(normal, 1.0);
 }
 

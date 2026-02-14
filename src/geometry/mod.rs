@@ -4,10 +4,12 @@ pub trait Vertex {
 
 
 /// Vertex layout for a .obj file
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GBufferVertex {
-    position: [f32; 3],
-    normal: [f32; 3],
-    texel: [f32; 2],
+    pub position: [f32; 3],
+    pub normal: [f32; 3],
+    pub texel: [f32; 2],
 }
 
 impl Vertex for GBufferVertex {

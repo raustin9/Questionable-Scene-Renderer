@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use wgpu::SurfaceError;
+use cgmath::{Matrix, SquareMatrix};
+use wgpu::{BindGroupDescriptor, SurfaceError, util::DeviceExt};
 use winit::window::Window;
 
 use crate::geometry::{self, Vertex};
@@ -12,19 +13,102 @@ pub struct Context {
     surface_configured: bool,
     queue: wgpu::Queue,
     gbuffer_pipeline: wgpu::RenderPipeline,
+    deferred_pipeline: wgpu::RenderPipeline,
+    camera_buffer: wgpu::Buffer,
+    world_buffer: wgpu::Buffer,
+
+    gbuffer_view: wgpu::TextureView,
+    albedo_view: wgpu::TextureView,
+    depth_view: wgpu::TextureView,
+
+    scene_uniform_bind_group: wgpu::BindGroup,
+    gbuffer_textures_bind_group: wgpu::BindGroup,
+    deferred_camera_bind_group: wgpu::BindGroup,
+
+    vertex_buffer: wgpu::Buffer,
 }
 
 // TODO: abstract this
-struct Camera {
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct CameraUniform {
     view_projection: [[f32; 4]; 4],
     inv_view_projection: [[f32; 4]; 4],
 }
 
-// TODO: abstract this
-struct Uniform {
-    model_matrix: [[f32; 4]; 4],
-    normal_model_matrix: [[f32; 4]; 4],
+struct Camera {
+    pub eye: cgmath::Point3<f32>,
+    pub target: cgmath::Point3<f32>,
+    pub up: cgmath::Vector3<f32>,
+    pub aspect: f32,
+    pub fovy: f32,
+    pub znear: f32,
+    pub zfar: f32,
 }
+
+#[rustfmt::skip]
+pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::from_cols(
+    cgmath::Vector4::new(1.0, 0.0, 0.0, 0.0),
+    cgmath::Vector4::new(0.0, 1.0, 0.0, 0.0),
+    cgmath::Vector4::new(0.0, 0.0, 0.5, 0.0),
+    cgmath::Vector4::new(0.0, 0.0, 0.5, 1.0),
+);
+
+impl CameraUniform {
+    pub fn new() -> Self {
+        use cgmath::SquareMatrix;
+        Self { view_projection: cgmath::Matrix4::identity().into(), inv_view_projection: cgmath::Matrix4::identity().into() }
+    }
+
+    pub fn update_projections(&mut self, camera: &Camera) {
+        self.view_projection = camera.build_view_projection_matrix().into();
+        self.inv_view_projection = camera.build_inv_view_projection_matrix().into();
+    }
+}
+
+impl Camera {
+    pub fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
+        let view = cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
+        let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
+
+        return OPENGL_TO_WGPU_MATRIX * proj * view;
+    }
+    pub fn build_inv_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
+        let view = cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
+        let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
+
+        let view_projection = proj * view;
+        let inv_view_projection = view_projection.invert().unwrap();
+        return OPENGL_TO_WGPU_MATRIX * inv_view_projection;
+    }
+}
+
+// TODO: abstract this
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct DataUniform {
+    pub model_matrix: [[f32; 4]; 4],
+    pub normal_model_matrix: [[f32; 4]; 4],
+}
+
+const VERTICES: &[geometry::GBufferVertex] = &[
+    geometry::GBufferVertex {
+        position: [0.5, 0.0, 0.5],
+        normal: [0.1, 0.2, 0.2],
+        texel: [0.0, 0.0]
+    },
+    geometry::GBufferVertex {
+        position: [0.5, 0.0, -0.5],
+        normal: [0.6, 0.2, 0.2],
+        texel: [0.0, 0.0]
+    },
+    geometry::GBufferVertex {
+        position: [0.0, 0.5, 0.0],
+        normal: [0.1, 0.2, 0.8],
+        texel: [0.0, 0.0]
+    },
+];
+
 
 impl Context {
     pub async fn new(window: Arc<Window>) -> Self {
@@ -131,6 +215,34 @@ impl Context {
             ],
             label: Some("gbuffer_bind_group_layout"),
         });
+
+        let write_gbuffers_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                // View projection
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None
+                    },
+                    count: None
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None
+                    },
+                    count: None
+                }
+            ],
+            label: Some("write_gbuffer_bind_group_layout"),
+        });
+        
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("GBuffer pipeline layout"),
             bind_group_layouts: &[
@@ -228,6 +340,25 @@ impl Context {
                 },
             ]
         });
+        let gbuffer_textures_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &gbuffer_bind_group_layout,
+            label: Some("gbuffer_textures_bind_group"),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&gbuffer_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&albedo_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&depth_view),
+                },
+            ],
+        });
+
         let deferred_shader_bytes = include_str!("../../shaders/common/deferred.wgsl");
         let deferred_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Deferred shader module"),
@@ -248,6 +379,7 @@ impl Context {
                 }
             ]
         });
+
         let deferred_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Deferred pipeline layout"),
             bind_group_layouts: &[
@@ -296,6 +428,69 @@ impl Context {
             cache: None
         });
 
+        let camera = Camera {
+            eye: (0.0, 1.0, 2.0).into(),
+            target: (0.0, 0.0, 0.0).into(),
+            up: cgmath::Vector3::unit_y(),
+            aspect: surface_config.width as f32 / surface_config.height as f32,
+            fovy: 45.0,
+            znear: 0.1,
+            zfar: 100.0,
+        };
+        let mut camera_uniform = CameraUniform::new();
+        camera_uniform.update_projections(&camera);
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("camera_uniform_buffer"),
+            contents: bytemuck::cast_slice(&[camera_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
+        });
+
+        let model_matrix = cgmath::Matrix4::from_translation(cgmath::Vector3::<f32> { 
+            x: 0.0, y: -45.0, z: 0.0
+        });
+        let inverse_model = model_matrix.invert().unwrap();
+        let inverse_transpose_model = inverse_model.transpose();
+        let data_uniform = DataUniform {
+            model_matrix: model_matrix.into(),
+            normal_model_matrix: inverse_transpose_model.into()
+        };
+        let world_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("world_uniform_buffer"),
+            contents: bytemuck::cast_slice(&[data_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
+        });
+
+        let scene_uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("scene_uniform_bind_group"),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: world_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: camera_buffer.as_entire_binding(),
+                },
+            ],
+            layout: &write_gbuffers_bind_group_layout,
+        });
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("vertex_buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: wgpu::BufferUsages::VERTEX
+        });
+        let deferred_camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("deferred_camera_bind_group"),
+            layout: &deferred_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding()
+                }
+            ]
+        });
+
         Self {
             device,
             queue,
@@ -303,6 +498,18 @@ impl Context {
             surface_config,
             surface_configured: false,
             gbuffer_pipeline,
+            deferred_pipeline,
+            camera_buffer,
+            world_buffer,
+
+            gbuffer_view,
+            albedo_view,
+            depth_view,
+
+            scene_uniform_bind_group,
+            gbuffer_textures_bind_group,
+            vertex_buffer,
+            deferred_camera_bind_group,
         }
     }
 
@@ -344,11 +551,107 @@ impl Context {
             self.surface.configure(&self.device, &self.surface_config);
             self.surface_configured = true;
         }
-
-        println!("Updating dimensions: {}, {}", width, height);
     }
 
     pub fn begin_frame(&mut self) -> Result<(), SurfaceError> {
+        if !self.surface_configured {
+            return Ok(());
+        }
+
+        let output = self.surface.get_current_texture()?;
+
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("command_encoder")
+        });
+
+        {
+            let mut gbuffer_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("GBuffer pass"),
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &self.gbuffer_view,
+                        resolve_target: None,
+                        depth_slice: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: 0.1,
+                                g: 0.2,
+                                b: 0.3,
+                                a: 1.0,
+                            }),
+                            store: wgpu::StoreOp::Store,
+                        }
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &self.albedo_view,
+                        resolve_target: None,
+                        depth_slice: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: 0.0,
+                                g: 0.0,
+                                b: 0.0,
+                                a: 1.0,
+                            }),
+                            store: wgpu::StoreOp::Store,
+                        }
+                    }),
+                ],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None
+                }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+
+            gbuffer_pass.set_pipeline(&self.gbuffer_pipeline);
+            gbuffer_pass.set_bind_group(0, &self.scene_uniform_bind_group, &[]);
+            gbuffer_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            gbuffer_pass.draw(0..VERTICES.len() as u32, 0..0);
+        }
+
+        // Deferred render pass
+        {
+            let mut deferred_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("deferred_pass"),
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        depth_slice: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: 0.0,
+                                g: 0.0,
+                                b: 0.0,
+                                a: 1.0
+                            }),
+                            store: wgpu::StoreOp::Store
+                        },
+                    }),
+                ],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            deferred_pass.set_pipeline(&self.deferred_pipeline);
+            deferred_pass.set_bind_group(0, &self.gbuffer_textures_bind_group, &[]);
+            deferred_pass.set_bind_group(1, &self.deferred_camera_bind_group, &[]);
+            deferred_pass.draw(0..6, 0..0);
+        }
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+        output.present();
+
         Ok(())
     }
 
