@@ -2,8 +2,7 @@
 fn vs_main(
   @builtin(vertex_index) VertexIndex : u32
 ) -> @builtin(position) vec4f {
-  const pos = array(
-    vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0),
+  const pos = array( vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0),
     vec2(-1.0, 1.0), vec2(1.0, -1.0), vec2(1.0, 1.0),
   );
 
@@ -45,9 +44,11 @@ fn fs_main(
   ).x;
 
   // Don't light the sky.
+  /*
   if (depth >= 1.0) {
     discard;
   }
+  */
 
   let bufferSize = textureDimensions(gBufferDepth);
   let coordUV = coord.xy / vec2f(bufferSize);
@@ -59,11 +60,11 @@ fn fs_main(
     0
   ).xyz;
 
-//  let albedo = textureLoad(
-//    gBufferAlbedo,
-//    vec2i(floor(coord.xy)),
-//    0
-//  ).rgb;
+  let albedo = textureLoad(
+    gBufferAlbedo,
+    vec2i(floor(coord.xy)),
+    0
+  ).rgb;
 
 //  for (var i = 0u; i < config.numLights; i++) {
 //    let L = lightsBuffer.lights[i].position.xyz - position;
@@ -82,7 +83,7 @@ fn fs_main(
 
 //  return vec4(result, 1.0);
     
-    return vec4(0.2, 0.3, 0.5, 1.0);
-    // return vec4(normal, 1.0);
+    // return vec4(0.5, 0.5, 0.5, 1.0);
+    return vec4(coordUV, 1.0, 1.0);
 }
 

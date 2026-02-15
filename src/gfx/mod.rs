@@ -74,12 +74,7 @@ impl Camera {
         return OPENGL_TO_WGPU_MATRIX * proj * view;
     }
     pub fn build_inv_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
-        let view = cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
-        let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
-
-        let view_projection = proj * view;
-        let inv_view_projection = view_projection.invert().unwrap();
-        return OPENGL_TO_WGPU_MATRIX * inv_view_projection;
+        return self.build_view_projection_matrix().invert().unwrap();
     }
 }
 
@@ -93,19 +88,19 @@ struct DataUniform {
 
 const VERTICES: &[geometry::GBufferVertex] = &[
     geometry::GBufferVertex {
-        position: [0.5, 0.0, 0.5],
-        normal: [0.1, 0.2, 0.2],
-        texel: [0.0, 0.0]
+        position: [0.0, 0.5, 0.5],
+        normal: [0.5, 0.5, 0.2],
+        texel: [0.0, 0.5]
     },
     geometry::GBufferVertex {
-        position: [0.5, 0.0, -0.5],
+        position: [-0.5, -0.5, 0.5],
         normal: [0.6, 0.2, 0.2],
-        texel: [0.0, 0.0]
+        texel: [-0.5, -0.5]
     },
     geometry::GBufferVertex {
-        position: [0.0, 0.5, 0.0],
+        position: [0.5, -0.5, 0.5],
         normal: [0.1, 0.2, 0.8],
-        texel: [0.0, 0.0]
+        texel: [0.5, -0.5]
     },
 ];
 
@@ -429,13 +424,13 @@ impl Context {
         });
 
         let camera = Camera {
-            eye: (0.0, 1.0, 2.0).into(),
+            eye: (0.0, 50.0, -100.0).into(),
             target: (0.0, 0.0, 0.0).into(),
             up: cgmath::Vector3::unit_y(),
             aspect: surface_config.width as f32 / surface_config.height as f32,
             fovy: 45.0,
             znear: 0.1,
-            zfar: 100.0,
+            zfar: 2000.0,
         };
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_projections(&camera);
@@ -446,7 +441,7 @@ impl Context {
         });
 
         let model_matrix = cgmath::Matrix4::from_translation(cgmath::Vector3::<f32> { 
-            x: 0.0, y: -45.0, z: 0.0
+            x: 0.0, y: 0.0, z: 0.0
         });
         let inverse_model = model_matrix.invert().unwrap();
         let inverse_transpose_model = inverse_model.transpose();
@@ -576,9 +571,9 @@ impl Context {
                         depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: 0.1,
-                                g: 0.2,
-                                b: 0.3,
+                                r: 1.0,
+                                g: 0.0,
+                                b: 0.0,
                                 a: 1.0,
                             }),
                             store: wgpu::StoreOp::Store,
@@ -591,7 +586,7 @@ impl Context {
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color {
                                 r: 0.0,
-                                g: 0.0,
+                                g: 1.0,
                                 b: 0.0,
                                 a: 1.0,
                             }),
@@ -615,7 +610,7 @@ impl Context {
             gbuffer_pass.set_pipeline(&self.gbuffer_pipeline);
             gbuffer_pass.set_bind_group(0, &self.scene_uniform_bind_group, &[]);
             gbuffer_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            gbuffer_pass.draw(0..VERTICES.len() as u32, 0..0);
+            gbuffer_pass.draw(0..VERTICES.len() as u32, 0..1);
         }
 
         // Deferred render pass
@@ -631,7 +626,7 @@ impl Context {
                             load: wgpu::LoadOp::Clear(wgpu::Color {
                                 r: 0.0,
                                 g: 0.0,
-                                b: 0.0,
+                                b: 1.0,
                                 a: 1.0
                             }),
                             store: wgpu::StoreOp::Store
@@ -646,7 +641,7 @@ impl Context {
             deferred_pass.set_pipeline(&self.deferred_pipeline);
             deferred_pass.set_bind_group(0, &self.gbuffer_textures_bind_group, &[]);
             deferred_pass.set_bind_group(1, &self.deferred_camera_bind_group, &[]);
-            deferred_pass.draw(0..6, 0..0);
+            deferred_pass.draw(0..6, 0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
