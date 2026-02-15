@@ -44,11 +44,9 @@ fn fs_main(
   ).x;
 
   // Don't light the sky.
-  /*
   if (depth >= 1.0) {
     discard;
   }
-  */
 
   let bufferSize = textureDimensions(gBufferDepth);
   let coordUV = coord.xy / vec2f(bufferSize);
@@ -66,6 +64,8 @@ fn fs_main(
     0
   ).rgb;
 
+  // return vec4(albedo, 1.0);
+
 //  for (var i = 0u; i < config.numLights; i++) {
 //    let L = lightsBuffer.lights[i].position.xyz - position;
 //    let distance = length(L);
@@ -77,13 +77,23 @@ fn fs_main(
 //      lambert * pow(1.0 - distance / lightsBuffer.lights[i].radius, 2.0) * lightsBuffer.lights[i].color * albedo
 //    );
 //  }
-//
+
+    let light_offset = 1.0;
+    let light_position = vec3(1.0, 1.0, -1.0) * light_offset;
+
+    let light_radius = 1.0;
+    let L = light_position.xyz - position;
+    let distance = length(L);
+    let lambert = max(dot(normal, normalize(L)), 0.0);
+    result += vec3f(
+      lambert * pow(1.0 - distance / light_radius, 2.0) * vec3(0.4, 0.1, 0.5) * albedo
+    );
 //  // some manual ambient
-//  result += vec3(0.2);
+    result += vec3(0.02);
 
 //  return vec4(result, 1.0);
     
     // return vec4(0.5, 0.5, 0.5, 1.0);
-    return vec4(coordUV, 1.0, 1.0);
+    return vec4(result, 1.0);
 }
 

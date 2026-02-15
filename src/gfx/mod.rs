@@ -88,18 +88,18 @@ struct DataUniform {
 
 const VERTICES: &[geometry::GBufferVertex] = &[
     geometry::GBufferVertex {
-        position: [0.0, 0.5, 0.5],
-        normal: [0.5, 0.5, 0.2],
+        position: [0.0, 0.5, 0.0],
+        normal: [0.0, 0.0, -1.0],
         texel: [0.0, 0.5]
     },
     geometry::GBufferVertex {
-        position: [-0.5, -0.5, 0.5],
-        normal: [0.6, 0.2, 0.2],
+        position: [-0.5, -0.5, 0.0],
+        normal: [0.0, 0.0, -1.0],
         texel: [-0.5, -0.5]
     },
     geometry::GBufferVertex {
-        position: [0.5, -0.5, 0.5],
-        normal: [0.1, 0.2, 0.8],
+        position: [0.5, -0.5, 0.0],
+        normal: [0.0, 0.0, -1.0],
         texel: [0.5, -0.5]
     },
 ];
@@ -424,12 +424,12 @@ impl Context {
         });
 
         let camera = Camera {
-            eye: (0.0, 50.0, -100.0).into(),
+            eye: (0.0, 1.0, 2.0).into(),
             target: (0.0, 0.0, 0.0).into(),
             up: cgmath::Vector3::unit_y(),
             aspect: surface_config.width as f32 / surface_config.height as f32,
             fovy: 45.0,
-            znear: 0.1,
+            znear: 0.001,
             zfar: 2000.0,
         };
         let mut camera_uniform = CameraUniform::new();
@@ -571,7 +571,7 @@ impl Context {
                         depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: 1.0,
+                                r: 0.0,
                                 g: 0.0,
                                 b: 0.0,
                                 a: 1.0,
@@ -586,7 +586,7 @@ impl Context {
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color {
                                 r: 0.0,
-                                g: 1.0,
+                                g: 0.0,
                                 b: 0.0,
                                 a: 1.0,
                             }),
@@ -626,7 +626,7 @@ impl Context {
                             load: wgpu::LoadOp::Clear(wgpu::Color {
                                 r: 0.0,
                                 g: 0.0,
-                                b: 1.0,
+                                b: 0.0,
                                 a: 1.0
                             }),
                             store: wgpu::StoreOp::Store
