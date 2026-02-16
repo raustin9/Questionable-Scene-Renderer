@@ -4,6 +4,10 @@ use cgmath::{Matrix, SquareMatrix};
 use wgpu::{BindGroupDescriptor, SurfaceError, util::DeviceExt};
 use winit::window::Window;
 
+pub mod pass;
+pub mod texture;
+pub mod shader;
+
 use crate::geometry::{self, Vertex};
 
 pub struct Context {
@@ -17,9 +21,9 @@ pub struct Context {
     camera_buffer: wgpu::Buffer,
     world_buffer: wgpu::Buffer,
 
-    gbuffer_view: wgpu::TextureView,
-    albedo_view: wgpu::TextureView,
-    depth_view: wgpu::TextureView,
+    normal_texture: texture::Texture,
+    albedo_texture: texture::Texture,
+    depth_texture: texture::Texture,
 
     scene_uniform_bind_group: wgpu::BindGroup,
     gbuffer_textures_bind_group: wgpu::BindGroup,
@@ -142,47 +146,40 @@ impl Context {
             depth_or_array_layers: 1,
         };
         
-        let gbuffer_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("GBuffer Texture"),
-            size: texture_size,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            format: wgpu::TextureFormat::Rgba16Float,
-            dimension: wgpu::TextureDimension::D2,
-            mip_level_count: 1,
-            sample_count: 1,
-            view_formats: &[],
-        });
-        let gbuffer_view = gbuffer_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        
-        let albedo_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Albedo Texture"),
-            size: texture_size,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            format: wgpu::TextureFormat::Bgra8Unorm,
-            dimension: wgpu::TextureDimension::D2,
-            mip_level_count: 1,
-            sample_count: 1,
-            view_formats: &[],
-        });
-        let albedo_view = albedo_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        
-        let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Depth Texture"),
-            size: texture_size,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            format: wgpu::TextureFormat::Depth24Plus,
-            dimension: wgpu::TextureDimension::D2,
-            mip_level_count: 1,
-            sample_count: 1,
-            view_formats: &[],
-        });
-        let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let normal_texture = texture::Texture::new(
+            &device,
+            "normal_texture", 
+            texture_size.width, 
+            texture_size.height, 
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING, 
+            wgpu::TextureFormat::Rgba16Float,
+        );
 
-        let gbuffer_shader_bytes = include_str!("../../shaders/common/gbuffer.wgsl");
-        let gbuffer_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("GBuffer Shader"),
-            source: wgpu::ShaderSource::Wgsl(String::from(gbuffer_shader_bytes).into())
-        });
+        let albedo_texture = texture::Texture::new(
+            &device,
+            "albedo_texture", 
+            texture_size.width, 
+            texture_size.height, 
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING, 
+            wgpu::TextureFormat::Bgra8Unorm,
+        );
+
+        let depth_texture = texture::Texture::new(
+            &device,
+            "depth_texture", 
+            texture_size.width, 
+            texture_size.height, 
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING, 
+            wgpu::TextureFormat::Depth24Plus,
+        );
+//
+        let gbuffer_shader = shader::Shader::from_source(
+            &device, 
+            include_str!("../../shaders/common/gbuffer.wgsl").into(), 
+            Some("vs_main"), 
+            Some("fs_main"), 
+            Some("gbuffer_shader"),
+        );
 
         let gbuffer_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
@@ -250,18 +247,18 @@ impl Context {
             label: Some("GBuffer Pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &gbuffer_shader,
-                entry_point: Some("vs_main"),
+                module: &gbuffer_shader.module(),
+                entry_point: gbuffer_shader.vert_entry(),
                 buffers: &[geometry::GBufferVertex::layout()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
-                module: &gbuffer_shader,
-                entry_point: Some("fs_main"),
+                module: &gbuffer_shader.module(),
+                entry_point: gbuffer_shader.frag_entry(),
                 targets: &[
                     // Normal 
                     Some(wgpu::ColorTargetState {
-                        format: gbuffer_texture.format(),
+                        format: normal_texture.format(),
                         blend: Some(wgpu::BlendState::REPLACE),
                         write_mask: wgpu::ColorWrites::ALL
                     }),
@@ -341,24 +338,27 @@ impl Context {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&gbuffer_view),
+                    resource: wgpu::BindingResource::TextureView(&normal_texture.view()),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&albedo_view),
+                    resource: wgpu::BindingResource::TextureView(&albedo_texture.view()),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&depth_view),
+                    resource: wgpu::BindingResource::TextureView(&depth_texture.view()),
                 },
             ],
         });
 
-        let deferred_shader_bytes = include_str!("../../shaders/common/deferred.wgsl");
-        let deferred_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Deferred shader module"),
-            source: wgpu::ShaderSource::Wgsl(String::from(deferred_shader_bytes).into())
-        });
+        let deferred_shader = shader::Shader::from_source(
+            &device, 
+            include_str!("../../shaders/common/deferred.wgsl").into(), 
+            Some("vs_main"), 
+            Some("fs_main"), 
+            Some("deferred_shader"),
+        );
+
         let deferred_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("deferred_bind_group_layout"),
             entries: &[
@@ -387,13 +387,14 @@ impl Context {
             label: Some("Deferred Pipeline"),
             layout: Some(&deferred_pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &deferred_shader,
+                module: deferred_shader.module(),
+                // module: &deferred_shader,
                 entry_point: Some("vs_main"),
                 buffers: &[],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
-                module: &deferred_shader,
+                module: deferred_shader.module(),
                 entry_point: Some("fs_main"),
                 targets: &[
                     Some(wgpu::ColorTargetState {
@@ -429,7 +430,7 @@ impl Context {
             up: cgmath::Vector3::unit_y(),
             aspect: surface_config.width as f32 / surface_config.height as f32,
             fovy: 45.0,
-            znear: 0.001,
+            znear: 0.1,
             zfar: 2000.0,
         };
         let mut camera_uniform = CameraUniform::new();
@@ -497,9 +498,11 @@ impl Context {
             camera_buffer,
             world_buffer,
 
-            gbuffer_view,
-            albedo_view,
-            depth_view,
+            // gbuffer_view,
+            normal_texture,
+            albedo_texture,
+            depth_texture,
+            // depth_view,
 
             scene_uniform_bind_group,
             gbuffer_textures_bind_group,
@@ -566,7 +569,7 @@ impl Context {
                 label: Some("GBuffer pass"),
                 color_attachments: &[
                     Some(wgpu::RenderPassColorAttachment {
-                        view: &self.gbuffer_view,
+                        view: &self.normal_texture.view(),
                         resolve_target: None,
                         depth_slice: None,
                         ops: wgpu::Operations {
@@ -580,7 +583,7 @@ impl Context {
                         }
                     }),
                     Some(wgpu::RenderPassColorAttachment {
-                        view: &self.albedo_view,
+                        view: &self.albedo_texture.view(),
                         resolve_target: None,
                         depth_slice: None,
                         ops: wgpu::Operations {
@@ -595,7 +598,7 @@ impl Context {
                     }),
                 ],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_view,
+                    view: &self.depth_texture.view(),
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,

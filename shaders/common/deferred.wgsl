@@ -81,7 +81,7 @@ fn fs_main(
     let light_offset = 1.0;
     let light_position = vec3(1.0, 1.0, -1.0) * light_offset;
 
-    let light_radius = 1.0;
+    let light_radius = 0.3;
     let L = light_position.xyz - position;
     let distance = length(L);
     let lambert = max(dot(normal, normalize(L)), 0.0);
