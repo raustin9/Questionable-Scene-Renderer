@@ -8,7 +8,7 @@ pub mod pass;
 pub mod texture;
 pub mod shader;
 
-use crate::geometry::{self, Vertex};
+use crate::{geometry::{self, GBufferVertex, Vertex}, shader::ShaderBuilder};
 
 pub struct Context {
     device: wgpu::Device,
@@ -173,13 +173,28 @@ impl Context {
             wgpu::TextureFormat::Depth24Plus,
         );
 //
-        let gbuffer_shader = shader::Shader::from_source(
-            &device, 
-            include_str!("../../shaders/common/gbuffer.wgsl").into(), 
-            Some("vs_main"), 
-            Some("fs_main"), 
-            Some("gbuffer_shader"),
-        );
+//        let gbuffer_shader = shader::Shader::from_source(
+//            &device, 
+//            include_str!("../../shaders/common/gbuffer.wgsl").into(), 
+//            Some("vs_main"), 
+//            Some("fs_main"), 
+//            Some("gbuffer_shader"),
+//        );
+
+        let gbuffer_shader = ShaderBuilder::new(&device, include_str!("../../shaders/common/gbuffer.wgsl").into())
+            .vert_entry("vs_main")
+            .frag_entry("fs_main")
+            .label("shader")
+            .add_vertex_layout(GBufferVertex::layout())
+            .build();
+
+        {
+            let shader = ShaderBuilder::new(&device, include_str!("../../shaders/common/gbuffer.wgsl").into())
+                .vert_entry("vs_main")
+                .frag_entry("fs_main")
+                .label("shader")
+                .add_vertex_layout(GBufferVertex::layout());
+        }
 
         let gbuffer_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
@@ -332,6 +347,7 @@ impl Context {
                 },
             ]
         });
+
         let gbuffer_textures_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &gbuffer_bind_group_layout,
             label: Some("gbuffer_textures_bind_group"),
@@ -351,13 +367,19 @@ impl Context {
             ],
         });
 
-        let deferred_shader = shader::Shader::from_source(
-            &device, 
-            include_str!("../../shaders/common/deferred.wgsl").into(), 
-            Some("vs_main"), 
-            Some("fs_main"), 
-            Some("deferred_shader"),
-        );
+//        let deferred_shader = shader::Shader::from_source(
+//            &device, 
+//            include_str!("../../shaders/common/deferred.wgsl").into(), 
+//            Some("vs_main"), 
+//            Some("fs_main"), 
+//            Some("deferred_shader"),
+//        );
+        let deferred_shader = ShaderBuilder::new(&device, include_str!("../../shaders/common/deferred.wgsl").into())
+            .vert_entry("vs_main")
+            .frag_entry("fs_main")
+            .label("deferred_shader")
+            .build();
+                
 
         let deferred_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("deferred_bind_group_layout"),
@@ -388,14 +410,15 @@ impl Context {
             layout: Some(&deferred_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: deferred_shader.module(),
-                // module: &deferred_shader,
-                entry_point: Some("vs_main"),
+                entry_point: deferred_shader.vert_entry(),
+                // entry_point: Some("vs_main"),
                 buffers: &[],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: deferred_shader.module(),
-                entry_point: Some("fs_main"),
+                entry_point: deferred_shader.frag_entry(),
+                // entry_point: Some("fs_main"),
                 targets: &[
                     Some(wgpu::ColorTargetState {
                         format: surface_config.format,
