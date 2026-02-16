@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
 use cgmath::{Matrix, SquareMatrix};
-use wgpu::{BindGroupDescriptor, SurfaceError, util::DeviceExt};
+use wgpu::{BindGroupDescriptor, SurfaceError, util::DeviceExt, wgc::id::markers::BindGroupLayout};
 use winit::window::Window;
 
 pub mod pass;
 pub mod texture;
 pub mod shader;
 
-use crate::{geometry::{self, GBufferVertex, Vertex}, shader::ShaderBuilder};
+use crate::{geometry::{self, GBufferVertex, Vertex}, shader::{BindGroupLayoutBuilder, ShaderBuilder}};
 
 pub struct Context {
     device: wgpu::Device,
@@ -172,14 +172,6 @@ impl Context {
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING, 
             wgpu::TextureFormat::Depth24Plus,
         );
-//
-//        let gbuffer_shader = shader::Shader::from_source(
-//            &device, 
-//            include_str!("../../shaders/common/gbuffer.wgsl").into(), 
-//            Some("vs_main"), 
-//            Some("fs_main"), 
-//            Some("gbuffer_shader"),
-//        );
 
         let gbuffer_shader = ShaderBuilder::new(&device, include_str!("../../shaders/common/gbuffer.wgsl").into())
             .vert_entry("vs_main")
@@ -188,72 +180,25 @@ impl Context {
             .add_vertex_layout(GBufferVertex::layout())
             .build();
 
-        {
-            let shader = ShaderBuilder::new(&device, include_str!("../../shaders/common/gbuffer.wgsl").into())
-                .vert_entry("vs_main")
-                .frag_entry("fs_main")
-                .label("shader")
-                .add_vertex_layout(GBufferVertex::layout());
-        }
+        let write_gbuffers_bind_group_layout = BindGroupLayoutBuilder::new(&device, Some("scene"))
+            .add_uniform(wgpu::ShaderStages::VERTEX)
+            .add_uniform(wgpu::ShaderStages::VERTEX)
+            .build_layout();
 
-        let gbuffer_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                // View projection
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None
-                    },
-                    count: None
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None
-                    },
-                    count: None
-                }
-            ],
-            label: Some("gbuffer_bind_group_layout"),
-        });
+        let gbuffer_textures_bind_group_layout = BindGroupLayoutBuilder::new(&device, Some("gbuffer_write"))
+            .add_texture(wgpu::ShaderStages::FRAGMENT, wgpu::TextureSampleType::Float { filterable: false }, false)
+            .add_texture(wgpu::ShaderStages::FRAGMENT, wgpu::TextureSampleType::Float { filterable: false }, false)
+            .add_texture(wgpu::ShaderStages::FRAGMENT, wgpu::TextureSampleType::Float { filterable: false }, false)
+            .build_layout();
 
-        let write_gbuffers_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                // View projection
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None
-                    },
-                    count: None
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None
-                    },
-                    count: None
-                }
-            ],
-            label: Some("write_gbuffer_bind_group_layout"),
-        });
-        
+        let deferred_bind_group_layout = BindGroupLayoutBuilder::new(&device, Some("deferred"))
+            .add_uniform(wgpu::ShaderStages::FRAGMENT)
+            .build_layout();
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("GBuffer pipeline layout"),
             bind_group_layouts: &[
-                &gbuffer_bind_group_layout
+                write_gbuffers_bind_group_layout.layout()
             ],
             immediate_size: 0,
         });
@@ -264,7 +209,7 @@ impl Context {
             vertex: wgpu::VertexState {
                 module: &gbuffer_shader.module(),
                 entry_point: gbuffer_shader.vert_entry(),
-                buffers: &[geometry::GBufferVertex::layout()],
+                buffers: gbuffer_shader.vertex_buffers(),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -312,96 +257,32 @@ impl Context {
             cache: None,
         });
 
-        let gbuffer_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("GBuffer bind group layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture { 
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture { 
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture { 
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-            ]
-        });
+        let gbuffer_textures_bind_group = gbuffer_textures_bind_group_layout.create_bind_group(&[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&normal_texture.view()),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&albedo_texture.view()),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::TextureView(&depth_texture.view()),
+            },
+        ]);
 
-        let gbuffer_textures_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &gbuffer_bind_group_layout,
-            label: Some("gbuffer_textures_bind_group"),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&normal_texture.view()),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&albedo_texture.view()),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&depth_texture.view()),
-                },
-            ],
-        });
-
-//        let deferred_shader = shader::Shader::from_source(
-//            &device, 
-//            include_str!("../../shaders/common/deferred.wgsl").into(), 
-//            Some("vs_main"), 
-//            Some("fs_main"), 
-//            Some("deferred_shader"),
-//        );
         let deferred_shader = ShaderBuilder::new(&device, include_str!("../../shaders/common/deferred.wgsl").into())
             .vert_entry("vs_main")
             .frag_entry("fs_main")
             .label("deferred_shader")
             .build();
                 
-
-        let deferred_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("deferred_bind_group_layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }
-            ]
-        });
-
         let deferred_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Deferred pipeline layout"),
             bind_group_layouts: &[
-                &gbuffer_bind_group_layout,
-                &deferred_bind_group_layout,
+                &gbuffer_textures_bind_group_layout.layout(),
+                &deferred_bind_group_layout.layout(),
             ],
             immediate_size: 0,
         });
@@ -411,14 +292,12 @@ impl Context {
             vertex: wgpu::VertexState {
                 module: deferred_shader.module(),
                 entry_point: deferred_shader.vert_entry(),
-                // entry_point: Some("vs_main"),
-                buffers: &[],
+                buffers: deferred_shader.vertex_buffers(),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: deferred_shader.module(),
                 entry_point: deferred_shader.frag_entry(),
-                // entry_point: Some("fs_main"),
                 targets: &[
                     Some(wgpu::ColorTargetState {
                         format: surface_config.format,
@@ -479,20 +358,16 @@ impl Context {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
         });
 
-        let scene_uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("scene_uniform_bind_group"),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: world_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: camera_buffer.as_entire_binding(),
-                },
-            ],
-            layout: &write_gbuffers_bind_group_layout,
-        });
+        let scene_uniform_bind_group = write_gbuffers_bind_group_layout.create_bind_group(&[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: world_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: camera_buffer.as_entire_binding(),
+            },
+        ]);
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vertex_buffer"),
@@ -501,7 +376,7 @@ impl Context {
         });
         let deferred_camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("deferred_camera_bind_group"),
-            layout: &deferred_bind_group_layout,
+            layout: &deferred_bind_group_layout.layout(),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -521,11 +396,9 @@ impl Context {
             camera_buffer,
             world_buffer,
 
-            // gbuffer_view,
             normal_texture,
             albedo_texture,
             depth_texture,
-            // depth_view,
 
             scene_uniform_bind_group,
             gbuffer_textures_bind_group,

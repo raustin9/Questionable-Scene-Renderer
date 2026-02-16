@@ -78,7 +78,7 @@ pub struct ShaderBuilder<'a> {
     vert_entry: Option<&'a str>,
     frag_entry: Option<&'a str>,
     label: Option<&'a str>,
-    bind_group_layouts: Vec<GroupBuilder<'a>>,
+    bind_group_layouts: Vec<BindGroupLayoutBuilder<'a>>,
     vertex_buffer_layouts: Vec<wgpu::VertexBufferLayout<'static>>,
 }
 
@@ -155,20 +155,50 @@ impl Uniform {
     }
 }
 
-struct GroupBuilder<'a> {
+pub struct BindGroupLayout<'a> {
     device: &'a wgpu::Device,
-    entries: Vec<wgpu::BindGroupLayoutEntry>
+    layout: wgpu::BindGroupLayout,
 }
 
-impl<'a> GroupBuilder<'a> {
-    pub fn new(device: &'a wgpu::Device, label: Option<&str>) -> Self {
+impl<'a> BindGroupLayout<'a> {
+    pub fn new(device: &'a wgpu::Device, layout: wgpu::BindGroupLayout) -> Self {
+        Self { device, layout }
+    }
+
+    pub fn create_bind_group(&self, entries: &[wgpu::BindGroupEntry]) -> wgpu::BindGroup {
+        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.layout,
+            entries,
+        });
+
+        group
+    }
+
+    pub fn layout(&self) -> &wgpu::BindGroupLayout {
+        &self.layout
+    }
+}
+
+pub struct BindGroupLayoutBuilder<'a> {
+    device: &'a wgpu::Device,
+    label: Option<&'a str>,
+    entries: Vec<wgpu::BindGroupLayoutEntry>,
+}
+
+impl<'a> BindGroupLayoutBuilder<'a> {
+    pub fn new(device: &'a wgpu::Device, label: Option<&'a str>) -> Self {
         Self {
             device,
+            label,
             entries: vec![]
         }
     }
 
-    pub fn add_uniform(&mut self, uniform: &Uniform, visibility: wgpu::ShaderStages) -> &GroupBuilder<'a> {
+    /// Add a uniform to the entries in the bind group layout being built.
+    /// The index that this is added to will be the binding that this entry will have.
+    /// For example, if this is the 3rd one added, this will have binding `2`
+    pub fn add_uniform(&mut self, visibility: wgpu::ShaderStages) -> &mut Self {
         self.entries.push(wgpu::BindGroupLayoutEntry {
             binding: self.entries.len() as u32,
             visibility,
@@ -183,7 +213,48 @@ impl<'a> GroupBuilder<'a> {
         self
     }
 
+    /// Add a texture to the entries in the bind group layout being built.
+    /// The index that this is added to will be the binding that this entry will have.
+    /// For example, if this is the 3rd one added, this will have binding `2`
+    pub fn add_texture(&mut self, visibility: wgpu::ShaderStages, sample_type: wgpu::TextureSampleType, multisampled: bool) -> &mut Self {
+        self.entries.push(wgpu::BindGroupLayoutEntry {
+            binding: self.entries.len() as u32,
+            visibility,
+            ty: wgpu::BindingType::Texture {
+                sample_type,
+                multisampled,
+                view_dimension: wgpu::TextureViewDimension::D2
+            },
+            count: None
+        });
+
+        self
+    }
+
+    /// Add a sampler to the entries in the bind group layout being built.
+    /// The index that this is added to will be the binding that this entry will have.
+    /// For example, if this is the 3rd one added, this will have binding `2`
+    pub fn add_sampler(&mut self, visibility: wgpu::ShaderStages, sampler_binding_type: wgpu::SamplerBindingType) -> &mut Self {
+        self.entries.push(wgpu::BindGroupLayoutEntry {
+            binding: self.entries.len() as u32,
+            visibility,
+            ty: wgpu::BindingType::Sampler(sampler_binding_type),
+            count: None
+        });
+
+        self
+    }
+
     pub fn entries(&self) -> &[wgpu::BindGroupLayoutEntry] {
         self.entries.as_ref()
+    }
+
+    pub fn build_layout(&self) -> BindGroupLayout<'a> {
+        let layout = self.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: self.label,
+            entries: self.entries()
+        });
+
+        BindGroupLayout::new(self.device, layout)
     }
 }
