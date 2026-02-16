@@ -374,16 +374,12 @@ impl Context {
             contents: bytemuck::cast_slice(VERTICES),
             usage: wgpu::BufferUsages::VERTEX
         });
-        let deferred_camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("deferred_camera_bind_group"),
-            layout: &deferred_bind_group_layout.layout(),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: camera_buffer.as_entire_binding()
-                }
-            ]
-        });
+        let deferred_camera_bind_group = deferred_bind_group_layout.create_bind_group(&[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding()
+            }
+        ]);
 
         Self {
             device,
