@@ -4,7 +4,6 @@ use cgmath::{Matrix, SquareMatrix};
 use wgpu::{BindGroupDescriptor, SurfaceError, util::DeviceExt, wgc::id::markers::BindGroupLayout};
 use winit::window::Window;
 
-pub mod pass;
 pub mod texture;
 pub mod shader;
 

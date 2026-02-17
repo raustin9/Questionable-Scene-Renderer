@@ -8,7 +8,6 @@ pub struct Shader<'a> {
     vert_entry: Option<&'a str>,
     frag_entry: Option<&'a str>,
     vertex_layouts: Vec<wgpu::VertexBufferLayout<'static>>,
-    
 }
 
 impl<'a> Shader<'a> {

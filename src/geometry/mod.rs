@@ -38,5 +38,16 @@ impl Vertex for GBufferVertex {
     }
 }
 
-pub struct ObjModel {
+pub struct Mesh {
+    pub vertices: Vec<GBufferVertex>,
+    pub indices: Option<Vec<u32>>,
+}
+
+impl Mesh {
+    pub fn new(vertices: &Vec<GBufferVertex>, indices: Option<Vec<u32>>) -> Self {
+        Self {
+            vertices: vertices.clone(),
+            indices,
+        }
+    }
 }
