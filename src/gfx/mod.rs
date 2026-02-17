@@ -1,13 +1,17 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use cgmath::{Matrix, SquareMatrix};
-use wgpu::{BindGroupDescriptor, SurfaceError, util::DeviceExt, wgc::id::markers::BindGroupLayout};
+use wgpu::{SurfaceError, util::DeviceExt};
 use winit::window::Window;
 
 pub mod texture;
 pub mod shader;
+pub mod renderer;
+pub mod render_graph;
+pub mod resource;
+pub mod builtin;
 
-use crate::{geometry::{self, GBufferVertex, Vertex}, shader::{BindGroupLayoutBuilder, ShaderBuilder}};
+use crate::{geometry::{self, GBufferVertex, Vertex}, gfx::{builtin::{deferred_pass_record_commands, write_gbuffers_pass_record_commands}, resource::{ResourceData, ResourceHandle, ResourceId, ResourceKind}}, shader::{BindGroupLayoutBuilder, ShaderBuilder}};
 
 pub struct Context {
     device: wgpu::Device,
@@ -29,6 +33,14 @@ pub struct Context {
     deferred_camera_bind_group: wgpu::BindGroup,
 
     vertex_buffer: wgpu::Buffer,
+
+    resources: HashMap<ResourceId, ResourceData>
+}
+
+pub struct FrameResource {
+    encoder: wgpu::CommandEncoder,
+    view: wgpu::TextureView,
+    output: wgpu::SurfaceTexture,
 }
 
 // TODO: abstract this
@@ -108,7 +120,7 @@ const VERTICES: &[geometry::GBufferVertex] = &[
 ];
 
 
-impl Context {
+impl<'a> Context {
     pub async fn new(window: Arc<Window>) -> Self {
         let window_size = window.inner_size();
 
@@ -153,7 +165,7 @@ impl Context {
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING, 
             wgpu::TextureFormat::Rgba16Float,
         );
-
+        
         let albedo_texture = texture::Texture::new(
             &device,
             "albedo_texture", 
@@ -399,6 +411,8 @@ impl Context {
             gbuffer_textures_bind_group,
             vertex_buffer,
             deferred_camera_bind_group,
+
+            resources: HashMap::new()
         }
     }
 
@@ -442,107 +456,61 @@ impl Context {
         }
     }
 
-    pub fn begin_frame(&mut self) -> Result<(), SurfaceError> {
+    pub fn begin_frame(&mut self) -> Result<Option<FrameResource>, SurfaceError> {
         if !self.surface_configured {
-            return Ok(());
+            return Ok(None);
         }
 
         let output = self.surface.get_current_texture()?;
 
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        let encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("command_encoder")
         });
 
-        {
-            let mut gbuffer_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("GBuffer pass"),
-                color_attachments: &[
-                    Some(wgpu::RenderPassColorAttachment {
-                        view: &self.normal_texture.view(),
-                        resolve_target: None,
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: 0.0,
-                                g: 0.0,
-                                b: 0.0,
-                                a: 1.0,
-                            }),
-                            store: wgpu::StoreOp::Store,
-                        }
-                    }),
-                    Some(wgpu::RenderPassColorAttachment {
-                        view: &self.albedo_texture.view(),
-                        resolve_target: None,
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: 0.0,
-                                g: 0.0,
-                                b: 0.0,
-                                a: 1.0,
-                            }),
-                            store: wgpu::StoreOp::Store,
-                        }
-                    }),
-                ],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_texture.view(),
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None
-                }),
-                occlusion_query_set: None,
-                timestamp_writes: None,
-                multiview_mask: None,
-            });
+        Ok(Some(FrameResource { encoder, output, view }))
+    }
 
-            gbuffer_pass.set_pipeline(&self.gbuffer_pipeline);
-            gbuffer_pass.set_bind_group(0, &self.scene_uniform_bind_group, &[]);
-            gbuffer_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            gbuffer_pass.draw(0..VERTICES.len() as u32, 0..1);
-        }
+    pub fn end_frame(&self, frame_resource: FrameResource) {
+        let mut encoder = frame_resource.encoder;
+        let view = frame_resource.view;
+        let output = frame_resource.output;
+        
+        write_gbuffers_pass_record_commands(
+            &mut encoder, 
+            &self.gbuffer_pipeline, 
+            &self.normal_texture, 
+            &self.albedo_texture, 
+            &self.depth_texture, 
+            &self.scene_uniform_bind_group, 
+            &self.vertex_buffer, 
+            VERTICES.len() as u32
+        );
 
-        // Deferred render pass
-        {
-            let mut deferred_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("deferred_pass"),
-                color_attachments: &[
-                    Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: 0.0,
-                                g: 0.0,
-                                b: 0.0,
-                                a: 1.0
-                            }),
-                            store: wgpu::StoreOp::Store
-                        },
-                    }),
-                ],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-                multiview_mask: None,
-            });
-            deferred_pass.set_pipeline(&self.deferred_pipeline);
-            deferred_pass.set_bind_group(0, &self.gbuffer_textures_bind_group, &[]);
-            deferred_pass.set_bind_group(1, &self.deferred_camera_bind_group, &[]);
-            deferred_pass.draw(0..6, 0..1);
-        }
+        deferred_pass_record_commands(
+            &mut encoder, 
+            &self.deferred_pipeline, 
+            &self.gbuffer_textures_bind_group, 
+            &self.deferred_camera_bind_group, 
+            &view
+        );
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-
-        Ok(())
     }
 
-    pub fn end_frame(&mut self) {}
+    // Create a texture resource to be used by consumers like the render graph
+    // TODO: update the lifetime params of the return value here
+    pub fn create_texture(&mut self, name: &str, size: wgpu::Extent3d, usage: wgpu::TextureUsages, format: wgpu::TextureFormat) -> ResourceHandle {
+        let texture = texture::Texture::new(&self.device, name, size.width, size.height, usage, format);
+
+        let id = ResourceId(self.resources.len());
+        self.resources.insert(id, ResourceData::Texture(texture));
+        ResourceHandle {
+            id: id.clone(),
+            kind: ResourceKind::Texture,
+            resource: &self.resources.get(&id).unwrap()
+        }
+    }
 }

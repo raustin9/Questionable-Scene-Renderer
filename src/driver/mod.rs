@@ -55,7 +55,10 @@ impl ApplicationHandler for Driver {
                 window.request_redraw();
 
                 match context.begin_frame() {
-                    Ok(_) => {},
+                    Ok(Some(frame_resource)) => {
+                        context.end_frame(frame_resource);
+                    },
+                    Ok(None) => {},
                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                         let size = window.inner_size();
                         context.update_dimensions(size.width, size.height);

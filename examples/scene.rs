@@ -8,7 +8,7 @@ fn main() {
     let mesh = load_obj("resources/meshes/cube.obj");
     println!("{:?}", mesh.vertices);
 
-    qsr::driver::Driver::run();
+    let _ = qsr::driver::Driver::run();
 }
 
 fn load_obj(file_path: &str) -> Mesh {
@@ -24,7 +24,7 @@ fn load_obj(file_path: &str) -> Mesh {
     let mut indices: Vec<u32> = Vec::new();
     let mut index_map: HashMap<(u32, u32, u32), u32> = HashMap::new();
 
-    for (i, m) in models.iter().enumerate() {
+    for (_, m) in models.iter().enumerate() {
         let mesh = &m.mesh;
 
         println!("Model name: {}", m.name);
