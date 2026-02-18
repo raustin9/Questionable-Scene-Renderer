@@ -79,7 +79,7 @@ fn fs_main(
 //  }
 
     let light_offset = 1.0;
-    let light_position = vec3(2.0, 2.0, -2.0) * light_offset;
+    let light_position = vec3(-1.0, 1.5, 2) * light_offset;
 
     let light_radius = 0.3;
     let L = light_position.xyz - position;

@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use crate::{Scene, camera::Camera, geometry::{self, Mesh}, gfx::{Context, FrameResource, builtin::{self, LightingPassFrameData, WriteGBuffersPassFrameData}, render_graph::RenderPassNode, resource::{ResourceData, ResourceHandle, ResourceId}}};
+use crate::{Scene, camera::Camera, gfx::{Context, FrameResource, builtin::{self, LightingPassFrameData, WriteGBuffersPassFrameData}, render_graph::RenderPassNode, resource::{ResourceData, ResourceId}}};
 
 pub trait Renderer<'a> {
     fn new(scene: &'a Scene<'a>, context: &mut Context) -> Self;

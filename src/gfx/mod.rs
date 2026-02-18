@@ -11,7 +11,7 @@ pub mod render_graph;
 pub mod resource;
 pub mod builtin;
 
-use crate::{geometry::{self, GBufferVertex, Mesh, Vertex}, gfx::{builtin::{deferred_pass_record_commands, write_gbuffers_pass_record_commands}, resource::{ResourceData, ResourceHandle, ResourceId, ResourceKind}}, shader::{BindGroupLayoutBuilder, ShaderBuilder, UniformBuffer}};
+use crate::{geometry::{self, Mesh}, gfx::{resource::{ResourceData, ResourceId}}, shader::{UniformBuffer}};
 
 pub struct Context {
     device: wgpu::Device,
@@ -19,21 +19,8 @@ pub struct Context {
     surface_config: wgpu::SurfaceConfiguration,
     surface_configured: bool,
     queue: wgpu::Queue,
-    // gbuffer_pipeline: wgpu::RenderPipeline,
-    // deferred_pipeline: wgpu::RenderPipeline,
     camera_buffer: wgpu::Buffer,
     world_buffer: wgpu::Buffer,
-
-//    normal_texture: texture::Texture,
-//    albedo_texture: texture::Texture,
-//    depth_texture: texture::Texture,
-//
-//    scene_uniform_bind_group: wgpu::BindGroup,
-//    gbuffer_textures_bind_group: wgpu::BindGroup,
-//    deferred_camera_bind_group: wgpu::BindGroup,
-//
-//    vertex_buffer: wgpu::Buffer,
-//
     resources: HashMap<ResourceId, ResourceData>
 }
 
@@ -153,192 +140,6 @@ impl<'a> Context {
             desired_maximum_frame_latency: 2,
         };
 
-        let texture_size = wgpu::Extent3d {
-            width: window_size.width,
-            height: window_size.height,
-            depth_or_array_layers: 1,
-        };
-        
-//        let normal_texture = texture::Texture::new(
-//            &device,
-//            "normal_texture", 
-//            texture_size.width, 
-//            texture_size.height, 
-//            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING, 
-//            wgpu::TextureFormat::Rgba16Float,
-//        );
-//        
-//        let albedo_texture = texture::Texture::new(
-//            &device,
-//            "albedo_texture", 
-//            texture_size.width, 
-//            texture_size.height, 
-//            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING, 
-//            wgpu::TextureFormat::Bgra8Unorm,
-//        );
-//
-//        let depth_texture = texture::Texture::new(
-//            &device,
-//            "depth_texture", 
-//            texture_size.width, 
-//            texture_size.height, 
-//            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING, 
-//            wgpu::TextureFormat::Depth24Plus,
-//        );
-//
-//        let gbuffer_shader = ShaderBuilder::new(&device, include_str!("../../shaders/common/gbuffer.wgsl").into())
-//            .vert_entry("vs_main")
-//            .frag_entry("fs_main")
-//            .label("shader")
-//            .add_vertex_layout(GBufferVertex::layout())
-//            .build();
-//
-//        let write_gbuffers_bind_group_layout = BindGroupLayoutBuilder::new(&device, Some("scene"))
-//            .add_uniform(wgpu::ShaderStages::VERTEX)
-//            .add_uniform(wgpu::ShaderStages::VERTEX)
-//            .build_layout();
-//
-//        let gbuffer_textures_bind_group_layout = BindGroupLayoutBuilder::new(&device, Some("gbuffer_write"))
-//            .add_texture(wgpu::ShaderStages::FRAGMENT, wgpu::TextureSampleType::Float { filterable: false }, false)
-//            .add_texture(wgpu::ShaderStages::FRAGMENT, wgpu::TextureSampleType::Float { filterable: false }, false)
-//            .add_texture(wgpu::ShaderStages::FRAGMENT, wgpu::TextureSampleType::Float { filterable: false }, false)
-//            .build_layout();
-//
-//        let deferred_bind_group_layout = BindGroupLayoutBuilder::new(&device, Some("deferred"))
-//            .add_uniform(wgpu::ShaderStages::FRAGMENT)
-//            .build_layout();
-//
-//        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-//            label: Some("GBuffer pipeline layout"),
-//            bind_group_layouts: &[
-//                write_gbuffers_bind_group_layout.layout()
-//            ],
-//            immediate_size: 0,
-//        });
-//        
-//        let gbuffer_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-//            label: Some("GBuffer Pipeline"),
-//            layout: Some(&pipeline_layout),
-//            vertex: wgpu::VertexState {
-//                module: &gbuffer_shader.module(),
-//                entry_point: gbuffer_shader.vert_entry(),
-//                buffers: gbuffer_shader.vertex_buffers(),
-//                compilation_options: wgpu::PipelineCompilationOptions::default(),
-//            },
-//            fragment: Some(wgpu::FragmentState {
-//                module: &gbuffer_shader.module(),
-//                entry_point: gbuffer_shader.frag_entry(),
-//                targets: &[
-//                    // Normal 
-//                    Some(wgpu::ColorTargetState {
-//                        format: normal_texture.format(),
-//                        blend: Some(wgpu::BlendState::REPLACE),
-//                        write_mask: wgpu::ColorWrites::ALL
-//                    }),
-//                    
-//                    // Normal 
-//                    Some(wgpu::ColorTargetState {
-//                        format: albedo_texture.format(),
-//                        blend: Some(wgpu::BlendState::REPLACE),
-//                        write_mask: wgpu::ColorWrites::ALL
-//                    }),
-//                ],
-//                compilation_options: wgpu::PipelineCompilationOptions::default(),
-//            }),
-//            depth_stencil: Some(wgpu::DepthStencilState {
-//                format: depth_texture.format(),
-//                depth_write_enabled: true,
-//                depth_compare: wgpu::CompareFunction::Less,
-//                stencil: wgpu::StencilState::default(),
-//                bias: wgpu::DepthBiasState::default(),
-//            }),
-//            primitive: wgpu::PrimitiveState {
-//                topology: wgpu::PrimitiveTopology::TriangleList,
-//                strip_index_format: None,
-//                front_face: wgpu::FrontFace::Ccw,
-//                cull_mode: Some(wgpu::Face::Back),
-//                polygon_mode: wgpu::PolygonMode::Fill,
-//                unclipped_depth: false,
-//                conservative: false,
-//            },
-//            multisample: wgpu::MultisampleState {
-//                count: 1,
-//                mask: 0xFFFF_FFFF_FFFF_FFFF_u64, // use all sample mask
-//                alpha_to_coverage_enabled: false
-//            },
-//            multiview_mask: None,
-//            cache: None,
-//        });
-//
-//        let gbuffer_textures_bind_group = gbuffer_textures_bind_group_layout.create_bind_group(&device, &[
-//            wgpu::BindGroupEntry {
-//                binding: 0,
-//                resource: wgpu::BindingResource::TextureView(&normal_texture.view()),
-//            },
-//            wgpu::BindGroupEntry {
-//                binding: 1,
-//                resource: wgpu::BindingResource::TextureView(&albedo_texture.view()),
-//            },
-//            wgpu::BindGroupEntry {
-//                binding: 2,
-//                resource: wgpu::BindingResource::TextureView(&depth_texture.view()),
-//            },
-//        ]);
-//
-//        let deferred_shader = ShaderBuilder::new(&device, include_str!("../../shaders/common/deferred.wgsl").into())
-//            .vert_entry("vs_main")
-//            .frag_entry("fs_main")
-//            .label("deferred_shader")
-//            .build();
-//                
-//        let deferred_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-//            label: Some("Deferred pipeline layout"),
-//            bind_group_layouts: &[
-//                &gbuffer_textures_bind_group_layout.layout(),
-//                &deferred_bind_group_layout.layout(),
-//            ],
-//            immediate_size: 0,
-//        });
-//        let deferred_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-//            label: Some("Deferred Pipeline"),
-//            layout: Some(&deferred_pipeline_layout),
-//            vertex: wgpu::VertexState {
-//                module: deferred_shader.module(),
-//                entry_point: deferred_shader.vert_entry(),
-//                buffers: deferred_shader.vertex_buffers(),
-//                compilation_options: wgpu::PipelineCompilationOptions::default(),
-//            },
-//            fragment: Some(wgpu::FragmentState {
-//                module: deferred_shader.module(),
-//                entry_point: deferred_shader.frag_entry(),
-//                targets: &[
-//                    Some(wgpu::ColorTargetState {
-//                        format: surface_config.format,
-//                        blend: Some(wgpu::BlendState::REPLACE),
-//                        write_mask: wgpu::ColorWrites::ALL,
-//                    }),
-//                ],
-//                compilation_options: wgpu::PipelineCompilationOptions::default(),
-//            }),
-//            depth_stencil: None,
-//            primitive: wgpu::PrimitiveState {
-//                topology: wgpu::PrimitiveTopology::TriangleList,
-//                strip_index_format: None,
-//                front_face: wgpu::FrontFace::Ccw,
-//                cull_mode: Some(wgpu::Face::Back),
-//                polygon_mode: wgpu::PolygonMode::Fill,
-//                unclipped_depth: false,
-//                conservative: false,
-//            },
-//            multisample: wgpu::MultisampleState {
-//                count: 1,
-//                mask: 0xFFFF_FFFF_FFFF_FFFF_u64, // use all sample mask
-//                alpha_to_coverage_enabled: false
-//            },
-//            multiview_mask: None,
-//            cache: None
-//        });.
-
         let camera = Camera {
             eye: (0.0, 2.0, 4.0).into(),
             target: (0.0, 0.0, 0.0).into(),
@@ -371,49 +172,14 @@ impl<'a> Context {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
         });
 
-//        let scene_uniform_bind_group = write_gbuffers_bind_group_layout.create_bind_group(&device, &[
-//            wgpu::BindGroupEntry {
-//                binding: 0,
-//                resource: world_buffer.as_entire_binding(),
-//            },
-//            wgpu::BindGroupEntry {
-//                binding: 1,
-//                resource: camera_buffer.as_entire_binding(),
-//            },
-//        ]);
-
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("vertex_buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
-            usage: wgpu::BufferUsages::VERTEX
-        });
-        
-//        let deferred_camera_bind_group = deferred_bind_group_layout.create_bind_group(&device, &[
-//            wgpu::BindGroupEntry {
-//                binding: 0,
-//                resource: camera_buffer.as_entire_binding()
-//            }
-//        ]);
-
         Self {
             device,
             queue,
             surface,
             surface_config,
             surface_configured: false,
-//            gbuffer_pipeline,
-//            deferred_pipeline,
             camera_buffer,
             world_buffer,
-
-//            normal_texture,
-//            albedo_texture,
-//            depth_texture,
-//
-//            scene_uniform_bind_group,
-//            gbuffer_textures_bind_group,
-//            vertex_buffer,
-//            deferred_camera_bind_group,
 
             resources: HashMap::new()
         }
@@ -482,35 +248,6 @@ impl<'a> Context {
     }
 
     pub fn end_frame(&self, frame_resource: FrameResource) {
-//        let mut encoder = frame_resource.encoder;
-//        let output_view = frame_resource.output_view;
-//        let output = frame_resource.output;
-//        
-//        write_gbuffers_pass_record_commands(
-//            &mut encoder, 
-//            &self.gbuffer_pipeline, 
-//            &self.normal_texture, 
-//            &self.albedo_texture, 
-//            &self.depth_texture, 
-//            &self.scene_uniform_bind_group, 
-//            &self.vertex_buffer, 
-//            VERTICES.len() as u32
-//        );
-//
-//        deferred_pass_record_commands(
-//            &mut encoder, 
-//            &self.deferred_pipeline, 
-//            &self.gbuffer_textures_bind_group, 
-//            &self.deferred_camera_bind_group, 
-//            &output_view
-//        );
-
-        // let encoder = frame_resource.encoder;
-        // let output = &frame_resource.output;
-
-
-        // let mut encoder = frame_resource.encoder;
-        
         let encoder = frame_resource.encoder;
         let output = frame_resource.output;
         self.queue.submit(std::iter::once(encoder.finish()));
