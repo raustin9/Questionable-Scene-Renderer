@@ -1,11 +1,23 @@
-use crate::Texture;
+use crate::{Texture, shader::UniformBuffer, geometry::Mesh};
 
 #[derive(Hash, Eq, PartialEq, Debug, Copy, Clone)]
-pub struct ResourceId(pub usize);
+pub struct ResourceId(u64);
+
+impl ResourceId {
+    pub fn new() -> Self {
+        static COUNTER: std::sync::atomic::AtomicU64 =
+            std::sync::atomic::AtomicU64::new(0);
+
+        ResourceId(
+            COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        )
+    }
+}
 
 pub enum ResourceKind {
     Texture,
-    Buffer,
+    UniformBuffer,
+    Mesh,
 }
 
 pub enum ResourceAccess {
@@ -15,7 +27,9 @@ pub enum ResourceAccess {
 }
 
 pub enum ResourceData {
-    Texture(Texture)
+    Texture(Texture),
+    UniformBuffer(UniformBuffer),
+    Mesh(Mesh),
 }
 
 pub struct ResourceHandle<'a> {

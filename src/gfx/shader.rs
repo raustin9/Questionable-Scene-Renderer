@@ -126,12 +126,12 @@ impl<'a> ShaderBuilder<'a> {
     }
 }
 
-struct Uniform {
+pub struct UniformBuffer {
     buffer: wgpu::Buffer,
     usages: wgpu::BufferUsages
 }
 
-impl Uniform {
+impl UniformBuffer {
     pub fn new(device: &wgpu::Device, usages: wgpu::BufferUsages, data: &[u8]) -> Self {
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("uniform_buffer"),
@@ -154,18 +154,21 @@ impl Uniform {
     }
 }
 
-pub struct BindGroupLayout<'a> {
-    device: &'a wgpu::Device,
+pub struct BindGroupLayout {
+    // device: &'a wgpu::Device,
     layout: wgpu::BindGroupLayout,
 }
 
-impl<'a> BindGroupLayout<'a> {
-    pub fn new(device: &'a wgpu::Device, layout: wgpu::BindGroupLayout) -> Self {
-        Self { device, layout }
+impl BindGroupLayout {
+    pub fn new(layout: wgpu::BindGroupLayout) -> Self {
+        // Self { device, layout }
+        Self {
+            layout
+        }
     }
 
-    pub fn create_bind_group(&self, entries: &[wgpu::BindGroupEntry]) -> wgpu::BindGroup {
-        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+    pub fn create_bind_group(&self, device: &wgpu::Device, entries: &[wgpu::BindGroupEntry]) -> wgpu::BindGroup {
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &self.layout,
             entries,
@@ -248,12 +251,13 @@ impl<'a> BindGroupLayoutBuilder<'a> {
         self.entries.as_ref()
     }
 
-    pub fn build_layout(&self) -> BindGroupLayout<'a> {
+    pub fn build_layout(&self) -> BindGroupLayout {
         let layout = self.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: self.label,
             entries: self.entries()
         });
 
-        BindGroupLayout::new(self.device, layout)
+        BindGroupLayout::new(layout)
+        // BindGroupLayout::new(self.device, layout)
     }
 }

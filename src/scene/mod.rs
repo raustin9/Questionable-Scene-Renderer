@@ -1,7 +1,7 @@
-use crate::geometry::Mesh;
+use crate::geometry::{InputGeometry, Mesh};
 
 pub struct Scene<'a> {
-    nodes: Vec<Node<'a>>,
+    pub nodes: Vec<Node<'a>>,
 }
 
 impl<'a> Scene<'a> {
@@ -19,19 +19,32 @@ impl<'a> Scene<'a> {
 }
 
 pub struct Node<'a> {
-    mesh: Option<&'a Mesh>,
+    /// The input geometry set for this node in the scene.
+    /// This will later be turned into a `gfx::geometry::Mesh`
+    /// for use in the renderer.
+    pub geometry: Option<InputGeometry<'a>>,
+
+    /// The diffuse_texture of this scene node.
+    pub texture: Option<&'a str>,
 }
 
 impl<'a> Node<'a> {
     pub fn new() -> Self {
         Self {
-            mesh: None
+            geometry: None,
+            texture: None
         }
     }
 
-    pub fn with_mesh(&mut self, mesh: &'a Mesh) -> &mut Self {
-        self.mesh = Some(mesh);
-        
+    /// Set the geometry of the node in the scene
+    pub fn with_geometry(&mut self, file_path: &'a str) -> &mut Self {
+        self.geometry = Some(InputGeometry::from_obj(file_path));
+        self
+    }
+
+    /// Set the diffuse texture of the node in the scene
+    pub fn with_texture(&mut self, texture: &'a str) -> &mut Self {
+        self.texture = Some(texture);
         self
     }
 }
