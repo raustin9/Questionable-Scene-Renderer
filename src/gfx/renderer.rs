@@ -1,6 +1,7 @@
 use std::convert::identity;
 
 use cgmath::{Rad, prelude::*};
+use wgpu::util::DeviceExt;
 use crate::{RotationUnit, Scene, Transform, camera::Camera, gfx::{Context, FrameResource, builtin::{self, LightingPassFrameData, WriteGBuffersPassFrameData}, render_graph::RenderPassNode, resource::{self, ResourceData, ResourceId, TextureHandle}}};
 
 pub trait Renderer<'a> {
@@ -100,9 +101,18 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct RenderableGeometryUniform {
+    model_matrix: [[f32; 4]; 4],
+    normal_model_matrix: [[f32; 4]; 4],
+}
+
 pub struct Renderable {
     pub mesh: Option<ResourceId>,
     pub model_matrix: cgmath::Matrix4<f32>,
+    pub normal_model_matrix: cgmath::Matrix4<f32>, 
+    pub uniform: wgpu::Buffer,
 }
 
 pub struct RenderData {
@@ -153,13 +163,32 @@ impl<'a> RenderData {
                         );
                     },
                     Transform::Translate(translate) => {
-                        let translation_matirx = cgmath::Matrix4::<f32>::from_translation(cgmath::Vector3 { x: translate[0], y: translate[1], z: translate[2] });
-                        model_matrix = model_matrix * translation_matirx;
+                        let translation_matrix = cgmath::Matrix4::<f32>::from_translation(cgmath::Vector3 { x: translate[0], y: translate[1], z: translate[2] });
+                        model_matrix = model_matrix * translation_matrix;
                     }
                 }
             }
 
-            render_data.opaque_renderables.push(Renderable { mesh: Some(mesh_handle), model_matrix });
+            let inverse_model = model_matrix.invert().expect("Failed to invert model matrix");
+            let inverse_transpose_model = inverse_model.transpose();
+
+            let uniform_data = RenderableGeometryUniform {
+                model_matrix: model_matrix.into(),
+                normal_model_matrix: inverse_transpose_model.into()
+            };
+            
+            let uniform = context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("geometry_uniform"),
+                contents: bytemuck::cast_slice(&[uniform_data]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
+            });
+
+            render_data.opaque_renderables.push(Renderable { 
+                mesh: Some(mesh_handle), 
+                model_matrix, 
+                normal_model_matrix: inverse_transpose_model,
+                uniform
+            });
         }
 
         render_data

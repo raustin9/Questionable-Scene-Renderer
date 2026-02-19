@@ -135,7 +135,7 @@ impl<'a> Context {
             format: surface_format,
             width: window_size.width,
             height: window_size.height,
-            present_mode: surface_capabilities.present_modes[0],
+            present_mode: Self::find_present_mode(&surface_capabilities.present_modes),
             alpha_mode: surface_capabilities.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
@@ -192,7 +192,7 @@ impl<'a> Context {
     async fn get_device(instance: &wgpu::Instance, surface: &wgpu::Surface<'static>) -> (wgpu::Device, wgpu::Queue, wgpu::SurfaceCapabilities) {
         let adapter = 
             instance.request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
+                power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(surface),
                 force_fallback_adapter: false
             })
@@ -218,6 +218,16 @@ impl<'a> Context {
         let capabilities = surface.get_capabilities(&adapter);
 
         return (device, queue, capabilities);
+    }
+
+    pub fn find_present_mode(present_modes: &[wgpu::PresentMode]) -> wgpu::PresentMode {
+        for present_mode in present_modes {
+            if *present_mode == wgpu::PresentMode::Immediate {
+                return wgpu::PresentMode::Immediate;
+            }
+        }
+
+        wgpu::PresentMode::Fifo
     }
 
     pub fn update_dimensions(&mut self, width: u32, height: u32) {

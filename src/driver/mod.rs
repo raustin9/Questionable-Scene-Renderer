@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::{sync::{Arc, Mutex}, time::Instant};
 
 use winit::{application::ApplicationHandler, error::EventLoopError, event::{KeyEvent, WindowEvent}, event_loop::{ControlFlow, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::Window};
 
@@ -10,6 +10,8 @@ pub struct Driver<'a> {
     context: Option<gfx::Context>,
     scene: &'a Scene<'a>,
     renderer: Option<DeferredRenderer<'a>>,
+    frame_count: u64,
+    last_start_time: Instant,
 }
 
 impl<'a> Driver<'a> {
@@ -22,7 +24,9 @@ impl<'a> Driver<'a> {
             window: None,
             context: None,
             renderer: None,
-            scene
+            scene,
+            frame_count: 0,
+            last_start_time: Instant::now(),
         };
         
         return event_loop.run_app(&mut driver);
@@ -52,7 +56,7 @@ impl<'a> ApplicationHandler for Driver<'a> {
             event: winit::event::WindowEvent,
         ) {
 
-        let window = match &self.window {
+        let window = match &mut self.window {
             Some(window) => window,
             None => return,
         };
@@ -72,6 +76,7 @@ impl<'a> ApplicationHandler for Driver<'a> {
             WindowEvent::RedrawRequested => {
                 window.request_redraw();
 
+                self.frame_count = self.frame_count + 1;
                 match context.begin_frame() {
                     // Likely configuring surface
                     Ok(None) => {},
@@ -92,6 +97,18 @@ impl<'a> ApplicationHandler for Driver<'a> {
                     // Misc error
                     Err(e) => log::error!("Error when rendering: {}", e),
                 };
+
+                print!("\rFrame Count: {}", self.frame_count);
+
+                if self.last_start_time.elapsed().as_secs() > 5 {
+                    let elapsed_time = self.last_start_time.elapsed().as_secs();
+                    let fps = self.frame_count / elapsed_time;
+                    
+                    window.set_title(format!("FPS: {}", fps).as_str());
+
+                    self.frame_count = 0;
+                    self.last_start_time = Instant::now();
+                }
             },
             WindowEvent::Resized(size) => {
                 context.update_dimensions(size.width, size.height);

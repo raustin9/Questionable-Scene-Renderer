@@ -90,7 +90,7 @@ fn fs_main(
       lambert * pow(1.0 - distance / light_radius, 2.0) * light_color * albedo
     );
 //  // some manual ambient
-    // result += vec3(0.02);
+    result += vec3(0.02);
 
 //  return vec4(result, 1.0);
     

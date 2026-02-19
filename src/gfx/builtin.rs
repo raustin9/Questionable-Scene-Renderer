@@ -16,6 +16,8 @@ pub struct WriteGBuffersPass {
 
     scene_bind_group_layout: BindGroupLayout,
     scene_bind_group: wgpu::BindGroup,
+    
+    geometry_bind_group_layout: BindGroupLayout,
 
     /* Textures */
     normal_texture_handle: ResourceId,
@@ -43,15 +45,20 @@ impl WriteGBuffersPass {
             .label("shader")
             .add_vertex_layout(GBufferVertex::layout())
             .build();
+
         let scene_bind_group_layout = BindGroupLayoutBuilder::new(&context.device, Some("scene"))
-            .add_uniform(wgpu::ShaderStages::VERTEX)
             .add_uniform(wgpu::ShaderStages::VERTEX)
             .build_layout();
 
+        let geometry_bind_group_layout = BindGroupLayoutBuilder::new(&context.device, Some("geometry"))
+            .add_uniform(wgpu::ShaderStages::VERTEX)
+            .build_layout();
+        
         let pipeline_layout = context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("GBuffer pipeline layout"),
             bind_group_layouts: &[
-                scene_bind_group_layout.layout()
+                scene_bind_group_layout.layout(),
+                geometry_bind_group_layout.layout(),
             ],
             immediate_size: 0,
         });
@@ -113,10 +120,6 @@ impl WriteGBuffersPass {
         let scene_bind_group = scene_bind_group_layout.create_bind_group(&context.device, &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: context.world_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
                 resource: context.camera_buffer.as_entire_binding(),
             },
         ]);
@@ -128,9 +131,10 @@ impl WriteGBuffersPass {
             normal_texture_handle,
             albedo_texture_handle,
             depth_texture_handle,
+            geometry_bind_group_layout,
             scene_bind_group_layout,
             scene_bind_group,
-            renderables
+            renderables,
         }
     }
 
@@ -199,14 +203,18 @@ impl<'a> RenderPassNode for WriteGBuffersPass {
             multiview_mask: None,
         });
 
-//        let scene_bind_group = match &self.scene_bind_group {
-//            Some(group) => group,
-//            None => return
-//        };
         render_pass.set_bind_group(0, &self.scene_bind_group, &[]);
         render_pass.set_pipeline(&self.pipeline);
 
         for renderable in &self.renderables {
+            let bind_group = self.geometry_bind_group_layout.create_bind_group(&context.device, &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: renderable.uniform.as_entire_binding(),
+                }
+            ]);
+            render_pass.set_bind_group(1, &bind_group, &[]);
+
             match &renderable.mesh {
                 Some(mesh_id) => {
                     let mesh = match context.get_resource(&mesh_id).unwrap() {

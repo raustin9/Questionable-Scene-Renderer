@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use cgmath::SquareMatrix;
+
 pub trait Vertex {
     fn layout() -> wgpu::VertexBufferLayout<'static>;
 }
@@ -45,6 +47,7 @@ pub(crate) struct Mesh {
     pub vertex_count: u32,
     pub index_buffer: Option<wgpu::Buffer>,
     pub index_count: u32,
+    pub model_matrix: cgmath::Matrix4<f32>
 }
 
 impl Mesh {
@@ -54,6 +57,7 @@ impl Mesh {
             vertex_count,
             index_buffer,
             index_count,
+            model_matrix: cgmath::Matrix4::identity(),
         }
     }
 }
