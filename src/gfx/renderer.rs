@@ -1,4 +1,7 @@
-use crate::{Scene, camera::Camera, gfx::{Context, FrameResource, builtin::{self, LightingPassFrameData, WriteGBuffersPassFrameData}, render_graph::RenderPassNode, resource::{ResourceData, ResourceId}}};
+use std::convert::identity;
+
+use cgmath::{Rad, prelude::*};
+use crate::{RotationUnit, Scene, Transform, camera::Camera, gfx::{Context, FrameResource, builtin::{self, LightingPassFrameData, WriteGBuffersPassFrameData}, render_graph::RenderPassNode, resource::{self, ResourceData, ResourceId, TextureHandle}}};
 
 pub trait Renderer<'a> {
     fn new(scene: &'a Scene<'a>, context: &mut Context) -> Self;
@@ -11,47 +14,37 @@ pub struct DeferredRenderer<'a> {
     write_gbuffers_pass: builtin::WriteGBuffersPass,
     lighting_pass: builtin::LightingPass,
 
-    gbuffer_normal_texture_handle: ResourceId,
-    gbuffer_albedo_texture_handle: ResourceId,
-    gbuffer_depth_texture_handle: ResourceId,
+    gbuffer_normal_texture_handle: TextureHandle,
+    gbuffer_albedo_texture_handle: TextureHandle,
+    gbuffer_depth_texture_handle: TextureHandle,
 }
 
 impl<'a> Renderer<'a> for DeferredRenderer<'a> {
     fn new(scene: &'a Scene<'a>, context: &mut Context) -> Self {
         let render_data = RenderData::new(scene, context);
         
-        let gbuffer_normal_texture_handle = context.create_texture(
-            "normal_texture", 
-            wgpu::Extent3d {
-                width: context.surface_config.width,
-                height: context.surface_config.height,
-                depth_or_array_layers: 1
-            }, 
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING, 
-            wgpu::TextureFormat::Rgba16Float
+        let gbuffer_normal_texture_handle = context.create_texture(resource::TextureDescriptor {
+                label: String::from("normal_texture"),
+                size: resource::TextureSize::Full,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                format: wgpu::TextureFormat::Rgba16Float
+            }
         );
         
-        let gbuffer_albedo_texture_handle = context.create_texture(
-            "albedo_texture", 
-            wgpu::Extent3d {
-                width: context.surface_config.width,
-                height: context.surface_config.height,
-                depth_or_array_layers: 1
-            }, 
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING, 
-            wgpu::TextureFormat::Bgra8Unorm
+        let gbuffer_albedo_texture_handle = context.create_texture(resource::TextureDescriptor {
+                label: String::from("albedo_texture"),
+                size: resource::TextureSize::Full,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                format: wgpu::TextureFormat::Bgra8Unorm
+            }
         );
         
-        let gbuffer_depth_texture_handle = context.create_texture(
-            "depth_texture", 
-            wgpu::Extent3d {
-                width: context.surface_config.width,
-                height: context.surface_config.height,
-                depth_or_array_layers: 1
-            }, 
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING, 
-            wgpu::TextureFormat::Depth24Plus
-        );
+        let gbuffer_depth_texture_handle = context.create_texture(resource::TextureDescriptor {
+            label: String::from("depth_texture"), 
+            size: resource::TextureSize::Full,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING, 
+            format: wgpu::TextureFormat::Depth24Plus
+        });
 
         let write_gbuffers_pass = builtin::WriteGBuffersPass::new(
             context, 
@@ -81,27 +74,16 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
         });
         self.write_gbuffers_pass.execute(&mut encoder, context);
 
-        let normal_texture = match context.get_resource(&self.gbuffer_normal_texture_handle).unwrap() {
-            ResourceData::Texture(texture) => texture,
-            _ => panic!("Got normal texture as different resource!"),
-        };
-
-        let albedo_texture = match context.get_resource(&self.gbuffer_albedo_texture_handle).unwrap() {
-            ResourceData::Texture(texture) => texture,
-            _ => panic!("Got albedo texture as different resource!"),
-        };
-        
-        let depth_texture = match context.get_resource(&self.gbuffer_depth_texture_handle).unwrap() {
-            ResourceData::Texture(texture) => texture,
-            _ => panic!("Got depth texture as different resource!"),
-        };
+        let normal_texture_view = context.get_texture_view(self.gbuffer_normal_texture_handle).expect("Failed to get gbuffer normal texture view");
+        let albedo_texture_view = context.get_texture_view(self.gbuffer_albedo_texture_handle).expect("Failed to get gbuffer albedo texture view");
+        let depth_texture_view = context.get_texture_view(self.gbuffer_depth_texture_handle).expect("Failed to get gbuffer depth texture view");
 
         self.lighting_pass.update_frame_data(context, &LightingPassFrameData {
             camera_buffer: &frame_resource.camera_buffer,
             view: &frame_resource.output_view,
-            normal_texture,
-            albedo_texture,
-            depth_texture
+            normal_texture_view,
+            albedo_texture_view,
+            depth_texture_view
         });
 
         self.lighting_pass.execute(&mut encoder, context);
@@ -109,7 +91,8 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
 }
 
 pub struct Renderable {
-    pub mesh: Option<ResourceId>
+    pub mesh: Option<ResourceId>,
+    pub model_matrix: cgmath::Matrix4<f32>,
 }
 
 pub struct RenderData {
@@ -142,7 +125,31 @@ impl<'a> RenderData {
                 None => continue,
             };
 
-            render_data.opaque_renderables.push(Renderable { mesh: Some(mesh_handle) });
+            // Form the model matrix
+            let mut model_matrix = cgmath::Matrix4::<f32>::identity();
+            for transform in &node.transforms {
+                match transform {
+                    Transform::Scale(scale) => {
+                        let scale_matrix = cgmath::Matrix4::from_nonuniform_scale(scale[0], scale[1], scale[2]);
+                        model_matrix = model_matrix * scale_matrix;
+                    },
+                    Transform::Rotate(axis, unit) => {
+                        let _rotation = cgmath::Matrix4::from_axis_angle(
+                            cgmath::Vector3 { x: axis[0], y: axis[1], z: axis[2] }, 
+                            match unit {
+                                RotationUnit::Rad(scalar) => cgmath::Rad(scalar.clone()),
+                                RotationUnit::Deg(scalar) => cgmath::Rad(scalar * 0.0174533),
+                            }
+                        );
+                    },
+                    Transform::Translate(translate) => {
+                        let translation_matirx = cgmath::Matrix4::<f32>::from_translation(cgmath::Vector3 { x: translate[0], y: translate[1], z: translate[2] });
+                        model_matrix = model_matrix * translation_matirx;
+                    }
+                }
+            }
+
+            render_data.opaque_renderables.push(Renderable { mesh: Some(mesh_handle), model_matrix });
         }
 
         render_data

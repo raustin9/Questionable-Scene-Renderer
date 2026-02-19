@@ -11,7 +11,7 @@ pub mod render_graph;
 pub mod resource;
 pub mod builtin;
 
-use crate::{geometry::{self, Mesh}, gfx::{resource::{ResourceData, ResourceId}}, shader::{UniformBuffer}};
+use crate::{geometry::{self, Mesh}, gfx::resource::{ResourceData, ResourceId, TextureHandle, TextureRegistry}, shader::UniformBuffer};
 
 pub struct Context {
     device: wgpu::Device,
@@ -21,7 +21,8 @@ pub struct Context {
     queue: wgpu::Queue,
     camera_buffer: wgpu::Buffer,
     world_buffer: wgpu::Buffer,
-    resources: HashMap<ResourceId, ResourceData>
+    resources: HashMap<ResourceId, ResourceData>,
+    texture_registry: TextureRegistry,
 }
 
 pub struct FrameResource {
@@ -141,7 +142,7 @@ impl<'a> Context {
         };
 
         let camera = Camera {
-            eye: (0.0, 2.0, 4.0).into(),
+            eye: (0.0, 16.0, 32.0).into(),
             target: (0.0, 0.0, 0.0).into(),
             up: cgmath::Vector3::unit_y(),
             aspect: surface_config.width as f32 / surface_config.height as f32,
@@ -172,6 +173,8 @@ impl<'a> Context {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
         });
 
+        let texture_registry = TextureRegistry::new(window_size.width, window_size.height);
+
         Self {
             device,
             queue,
@@ -181,7 +184,8 @@ impl<'a> Context {
             camera_buffer,
             world_buffer,
 
-            resources: HashMap::new()
+            resources: HashMap::new(),
+            texture_registry,
         }
     }
 
@@ -257,14 +261,8 @@ impl<'a> Context {
 
     // Create a texture resource to be used by consumers like the render graph
     // TODO: update the lifetime params of the return value here
-    pub fn create_texture(&mut self, name: &str, size: wgpu::Extent3d, usage: wgpu::TextureUsages, format: wgpu::TextureFormat) -> ResourceId {
-        let texture = texture::Texture::new(&self.device, name, size.width, size.height, usage, format);
-
-        // let id = ResourceId(self.resources.len());
-        let id = ResourceId::new();
-        self.resources.insert(id, ResourceData::Texture(texture));
-
-        id
+    pub fn create_texture(&mut self, descriptor: resource::TextureDescriptor) -> resource::TextureHandle {
+        self.texture_registry.create_texture(&self.device, descriptor)
     }
 
     pub fn create_uniform_buffer(&mut self, usages: wgpu::BufferUsages, data: &[u8]) -> ResourceId {
@@ -304,6 +302,14 @@ impl<'a> Context {
         );
 
         id
+    }
+
+    pub fn get_texture(&self, handle: TextureHandle) -> Option<&wgpu::Texture> {
+        self.texture_registry.get_texture(handle)
+    }
+
+    pub fn get_texture_view(&self, handle: TextureHandle) -> Option<&wgpu::TextureView> {
+        self.texture_registry.get_view(handle)
     }
 
     pub fn get_resource(&self, id: &ResourceId) -> Option<&ResourceData> {

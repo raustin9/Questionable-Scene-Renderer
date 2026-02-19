@@ -33,20 +33,9 @@ impl WriteGBuffersPass {
         depth_texture_handle: ResourceId,
         renderables: Vec<Renderable>
     ) -> Self {
-        let normal_texture = match context.get_resource(&normal_texture_handle).unwrap() {
-            ResourceData::Texture(texture) => texture,
-            _ => panic!("Got normal texture as different resource!"),
-        };
-
-        let albedo_texture = match context.get_resource(&albedo_texture_handle).unwrap() {
-            ResourceData::Texture(texture) => texture,
-            _ => panic!("Got albedo texture as different resource!"),
-        };
-        
-        let depth_texture = match context.get_resource(&depth_texture_handle).unwrap() {
-            ResourceData::Texture(texture) => texture,
-            _ => panic!("Got depth texture as different resource!"),
-        };
+        let normal_texture = context.get_texture(normal_texture_handle).expect("Failed to get normal texture from context");
+        let albedo_texture = context.get_texture(albedo_texture_handle).expect("Failed to get albedo texture from context");
+        let depth_texture = context.get_texture(depth_texture_handle).expect("Failed to get depth texture from context");
 
         let gbuffer_shader = ShaderBuilder::new(&context.device, include_str!("../../shaders/common/gbuffer.wgsl").into())
             .vert_entry("vs_main")
@@ -159,26 +148,15 @@ impl<'a> RenderPassNode for WriteGBuffersPass {
     }
 
     fn execute(&self, encoder: &mut wgpu::CommandEncoder, context: &Context) {
-        let normal_texture = match context.get_resource(&self.normal_texture_handle).unwrap() {
-            ResourceData::Texture(texture) => texture,
-            _ => panic!("Got normal texture as different resource!"),
-        };
-
-        let albedo_texture = match context.get_resource(&self.albedo_texture_handle).unwrap() {
-            ResourceData::Texture(texture) => texture,
-            _ => panic!("Got albedo texture as different resource!"),
-        };
-        
-        let depth_texture = match context.get_resource(&self.depth_texture_handle).unwrap() {
-            ResourceData::Texture(texture) => texture,
-            _ => panic!("Got depth texture as different resource!"),
-        };
+        let normal_texture_view = context.get_texture_view(self.normal_texture_handle).expect("Failed to get normal texture view from context");
+        let albedo_texture_view = context.get_texture_view(self.albedo_texture_handle).expect("Failed to get albedo texture view from context");
+        let depth_texture_view = context.get_texture_view(self.depth_texture_handle).expect("Failed to get depth texture view from context");
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some(self.name),
             color_attachments: &[
                 Some(wgpu::RenderPassColorAttachment {
-                    view: &normal_texture.view(),
+                    view: &normal_texture_view,
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
@@ -192,7 +170,7 @@ impl<'a> RenderPassNode for WriteGBuffersPass {
                     }
                 }),
                 Some(wgpu::RenderPassColorAttachment {
-                    view: &albedo_texture.view(),
+                    view: &albedo_texture_view,
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
@@ -207,7 +185,7 @@ impl<'a> RenderPassNode for WriteGBuffersPass {
                 }),
             ],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &depth_texture.view(),
+                view: &depth_texture_view,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(1.0),
                     store: wgpu::StoreOp::Store,
@@ -254,9 +232,9 @@ impl<'a> RenderPassNode for WriteGBuffersPass {
 pub struct LightingPassFrameData<'a> {
     pub view: &'a wgpu::TextureView,
     pub camera_buffer: &'a wgpu::Buffer,
-    pub normal_texture: &'a texture::Texture,
-    pub albedo_texture: &'a texture::Texture,
-    pub depth_texture: &'a texture::Texture,
+    pub normal_texture_view: &'a wgpu::TextureView,
+    pub albedo_texture_view: &'a wgpu::TextureView,
+    pub depth_texture_view: &'a wgpu::TextureView,
 }
 
 pub struct LightingPass {
@@ -358,15 +336,15 @@ impl LightingPass {
         self.gbuffer_textures_bind_group = Some(self.gbuffer_textures_bind_group_layout.create_bind_group(&context.device, &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::TextureView(&frame_data.normal_texture.view()),
+                resource: wgpu::BindingResource::TextureView(&frame_data.normal_texture_view),
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::TextureView(&frame_data.albedo_texture.view()),
+                resource: wgpu::BindingResource::TextureView(&frame_data.albedo_texture_view),
             },
             wgpu::BindGroupEntry {
                 binding: 2,
-                resource: wgpu::BindingResource::TextureView(&frame_data.depth_texture.view()),
+                resource: wgpu::BindingResource::TextureView(&frame_data.depth_texture_view),
             },
         ]));
 

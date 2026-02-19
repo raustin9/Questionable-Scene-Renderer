@@ -80,16 +80,17 @@ fn fs_main(
 
     let light_offset = 1.0;
     let light_position = vec3(-1.0, 1.5, 2) * light_offset;
+    let light_color = vec3(0.0, 0.1, 0.0);
 
-    let light_radius = 0.3;
+    let light_radius = 0.5;
     let L = light_position.xyz - position;
     let distance = length(L);
     let lambert = max(dot(normal, normalize(L)), 0.0);
     result += vec3f(
-      lambert * pow(1.0 - distance / light_radius, 2.0) * vec3(0.4, 0.1, 0.5) * albedo
+      lambert * pow(1.0 - distance / light_radius, 2.0) * light_color * albedo
     );
 //  // some manual ambient
-    result += vec3(0.02);
+    // result += vec3(0.02);
 
 //  return vec4(result, 1.0);
     

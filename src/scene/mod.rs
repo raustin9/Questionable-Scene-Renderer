@@ -18,6 +18,17 @@ impl<'a> Scene<'a> {
     }
 }
 
+pub enum RotationUnit {
+    Rad(f32),
+    Deg(f32),
+}
+
+pub enum Transform {
+    Translate([f32; 3]),
+    Rotate([f32; 3], RotationUnit),
+    Scale([f32; 3]),
+}
+
 pub struct Node<'a> {
     /// The input geometry set for this node in the scene.
     /// This will later be turned into a `gfx::geometry::Mesh`
@@ -26,13 +37,19 @@ pub struct Node<'a> {
 
     /// The diffuse_texture of this scene node.
     pub texture: Option<&'a str>,
+
+    // Transforms to manipulate the object.
+    // These will be applied in the order 
+    // that they are added.
+    pub transforms: Vec<Transform>,
 }
 
 impl<'a> Node<'a> {
     pub fn new() -> Self {
         Self {
             geometry: None,
-            texture: None
+            texture: None,
+            transforms: vec![]
         }
     }
 
@@ -45,6 +62,11 @@ impl<'a> Node<'a> {
     /// Set the diffuse texture of the node in the scene
     pub fn with_texture(&mut self, texture: &'a str) -> &mut Self {
         self.texture = Some(texture);
+        self
+    }
+
+    pub fn with_transform(&mut self, transform: Transform) -> &mut Self {
+        self.transforms.push(transform);
         self
     }
 }
