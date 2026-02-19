@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{geometry::{GBufferVertex, Vertex}, gfx::{Context, render_graph::{RenderPassKind, RenderPassNode}, renderer::Renderable, resource::{ResourceData, ResourceId}, texture}, shader::{BindGroupLayout, BindGroupLayoutBuilder, ShaderBuilder}};
+use crate::{geometry::{GBufferVertex, Vertex}, gfx::{Context, render_graph::{RenderPassKind, RenderPassNode}, renderer::Renderable, resource::{ResourceData, ResourceId, TextureHandle}, texture}, shader::{BindGroupLayout, BindGroupLayoutBuilder, ShaderBuilder}};
 
 pub struct WriteGBuffersPassFrameData<'a> {
     pub world_buffer: &'a wgpu::Buffer,
@@ -15,7 +15,7 @@ pub struct WriteGBuffersPass {
     pipeline: wgpu::RenderPipeline,
 
     scene_bind_group_layout: BindGroupLayout,
-    scene_bind_group: Option<wgpu::BindGroup>,
+    scene_bind_group: wgpu::BindGroup,
 
     /* Textures */
     normal_texture_handle: ResourceId,
@@ -43,7 +43,6 @@ impl WriteGBuffersPass {
             .label("shader")
             .add_vertex_layout(GBufferVertex::layout())
             .build();
-
         let scene_bind_group_layout = BindGroupLayoutBuilder::new(&context.device, Some("scene"))
             .add_uniform(wgpu::ShaderStages::VERTEX)
             .add_uniform(wgpu::ShaderStages::VERTEX)
@@ -111,6 +110,17 @@ impl WriteGBuffersPass {
             cache: None,
         });
 
+        let scene_bind_group = scene_bind_group_layout.create_bind_group(&context.device, &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: context.world_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: context.camera_buffer.as_entire_binding(),
+            },
+        ]);
+
         Self {
             name: "write_gbuffers_pass",
             kind: RenderPassKind::Graphics,
@@ -119,22 +129,12 @@ impl WriteGBuffersPass {
             albedo_texture_handle,
             depth_texture_handle,
             scene_bind_group_layout,
-            scene_bind_group: None,
+            scene_bind_group,
             renderables
         }
     }
 
-    pub fn set_frame_data(&mut self, context: &Context, frame_data: &WriteGBuffersPassFrameData) {
-        self.scene_bind_group = Some(self.scene_bind_group_layout.create_bind_group(&context.device, &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: frame_data.world_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: frame_data.camera_buffer.as_entire_binding(),
-            },
-        ]));
+    pub fn set_frame_data(&mut self, _context: &Context, _frame_data: &WriteGBuffersPassFrameData) {
     }
 }
 
@@ -146,6 +146,8 @@ impl<'a> RenderPassNode for WriteGBuffersPass {
     fn kind(&self) -> RenderPassKind {
         self.kind
     }
+
+    fn on_resize(&mut self, _context: &Context, _width: u32, _height: u32) {}
 
     fn execute(&self, encoder: &mut wgpu::CommandEncoder, context: &Context) {
         let normal_texture_view = context.get_texture_view(self.normal_texture_handle).expect("Failed to get normal texture view from context");
@@ -197,11 +199,11 @@ impl<'a> RenderPassNode for WriteGBuffersPass {
             multiview_mask: None,
         });
 
-        let scene_bind_group = match &self.scene_bind_group {
-            Some(group) => group,
-            None => return
-        };
-        render_pass.set_bind_group(0, scene_bind_group, &[]);
+//        let scene_bind_group = match &self.scene_bind_group {
+//            Some(group) => group,
+//            None => return
+//        };
+        render_pass.set_bind_group(0, &self.scene_bind_group, &[]);
         render_pass.set_pipeline(&self.pipeline);
 
         for renderable in &self.renderables {
@@ -231,10 +233,6 @@ impl<'a> RenderPassNode for WriteGBuffersPass {
 
 pub struct LightingPassFrameData<'a> {
     pub view: &'a wgpu::TextureView,
-    pub camera_buffer: &'a wgpu::Buffer,
-    pub normal_texture_view: &'a wgpu::TextureView,
-    pub albedo_texture_view: &'a wgpu::TextureView,
-    pub depth_texture_view: &'a wgpu::TextureView,
 }
 
 pub struct LightingPass {
@@ -247,11 +245,17 @@ pub struct LightingPass {
     gbuffer_textures_bind_group: Option<wgpu::BindGroup>,
     camera_bind_group: Option<wgpu::BindGroup>,
     view: Option<wgpu::TextureView>,
+    gbuffer_normal_texture_handle: TextureHandle,
+    gbuffer_albedo_texture_handle: TextureHandle,
+    gbuffer_depth_texture_handle: TextureHandle,
 }
 
 impl LightingPass {
     pub fn new(
         context: &mut Context,
+        gbuffer_normal_texture_handle: TextureHandle,
+        gbuffer_albedo_texture_handle: TextureHandle,
+        gbuffer_depth_texture_handle: TextureHandle,
     ) -> Self {
         let gbuffer_textures_bind_group_layout = BindGroupLayoutBuilder::new(&context.device, Some("read_gbuffers_layout"))
             .add_texture(wgpu::ShaderStages::FRAGMENT, wgpu::TextureSampleType::Float { filterable: false }, false)
@@ -317,6 +321,34 @@ impl LightingPass {
             multiview_mask: None,
             cache: None
         });
+        
+        let normal_texture_view = context.get_texture_view(gbuffer_normal_texture_handle).expect("Failed to get gbuffer normal texture view");
+        let albedo_texture_view = context.get_texture_view(gbuffer_albedo_texture_handle).expect("Failed to get gbuffer albedo texture view");
+        let depth_texture_view = context.get_texture_view(gbuffer_depth_texture_handle).expect("Failed to get gbuffer depth texture view");
+
+
+        let gbuffer_textures_bind_group = gbuffer_textures_bind_group_layout.create_bind_group(&context.device, &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(normal_texture_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(albedo_texture_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::TextureView(depth_texture_view),
+            },
+        ]);
+        
+        let camera_bind_group = camera_bind_group_layout.create_bind_group(&context.device, &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: context.camera_buffer.as_entire_binding()
+            }
+        ]);
+
 
         Self {
             name: "lighting_pass",
@@ -324,36 +356,18 @@ impl LightingPass {
             pipeline,
             gbuffer_textures_bind_group_layout,
             camera_bind_group_layout,
-            camera_bind_group: None,
-            gbuffer_textures_bind_group: None,
+            camera_bind_group: Some(camera_bind_group),
+            gbuffer_textures_bind_group: Some(gbuffer_textures_bind_group),
             view: None,
+
+            gbuffer_normal_texture_handle,
+            gbuffer_albedo_texture_handle,
+            gbuffer_depth_texture_handle,
         }
     }
 
-    pub fn update_frame_data(&mut self, context: &Context, frame_data: &LightingPassFrameData) {
+    pub fn update_frame_data(&mut self, _context: &Context, frame_data: &LightingPassFrameData) {
         self.view = Some(frame_data.view.clone());
-        
-        self.gbuffer_textures_bind_group = Some(self.gbuffer_textures_bind_group_layout.create_bind_group(&context.device, &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&frame_data.normal_texture_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::TextureView(&frame_data.albedo_texture_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::TextureView(&frame_data.depth_texture_view),
-            },
-        ]));
-
-        self.camera_bind_group = Some(self.camera_bind_group_layout.create_bind_group(&context.device, &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: frame_data.camera_buffer.as_entire_binding()
-            }
-        ]));
     }
 }
 
@@ -364,6 +378,27 @@ impl RenderPassNode for LightingPass {
 
     fn kind(&self) -> RenderPassKind {
         self.kind
+    }
+
+    fn on_resize(&mut self, context: &Context, _width: u32, _height: u32) {
+        let normal_texture_view = context.get_texture_view(self.gbuffer_normal_texture_handle).expect("Failed to get gbuffer normal texture view");
+        let albedo_texture_view = context.get_texture_view(self.gbuffer_albedo_texture_handle).expect("Failed to get gbuffer albedo texture view");
+        let depth_texture_view = context.get_texture_view(self.gbuffer_depth_texture_handle).expect("Failed to get gbuffer depth texture view");
+        
+        self.gbuffer_textures_bind_group = Some(self.gbuffer_textures_bind_group_layout.create_bind_group(&context.device, &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&normal_texture_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&albedo_texture_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::TextureView(&depth_texture_view),
+            },
+        ]));
     }
 
     fn execute(&self, encoder: &mut wgpu::CommandEncoder, _context: &Context) {

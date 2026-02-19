@@ -226,6 +226,8 @@ impl<'a> Context {
             self.surface_config.height = height;
             self.surface.configure(&self.device, &self.surface_config);
             self.surface_configured = true;
+
+            self.texture_registry.resize_textures(&self.device, width, height);
         }
     }
 
@@ -256,7 +258,6 @@ impl<'a> Context {
         let output = frame_resource.output;
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-        
     }
 
     // Create a texture resource to be used by consumers like the render graph

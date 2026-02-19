@@ -86,6 +86,7 @@ impl<'a> ApplicationHandler for Driver<'a> {
                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                         let size = window.inner_size();
                         context.update_dimensions(size.width, size.height);
+                        renderer.resize(context, size.width, size.height);
                     },
 
                     // Misc error
@@ -94,6 +95,7 @@ impl<'a> ApplicationHandler for Driver<'a> {
             },
             WindowEvent::Resized(size) => {
                 context.update_dimensions(size.width, size.height);
+                renderer.resize(context, size.width, size.height);
             },
             WindowEvent::KeyboardInput { 
                 event: KeyEvent {

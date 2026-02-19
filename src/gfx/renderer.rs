@@ -7,6 +7,10 @@ pub trait Renderer<'a> {
     fn new(scene: &'a Scene<'a>, context: &mut Context) -> Self;
 
     fn render(&mut self, context: &Context, frame_resource: &mut FrameResource);
+
+    fn resize(&mut self, context: &Context, width: u32, height: u32);
+
+    fn update(&mut self);
 }
 
 pub struct DeferredRenderer<'a> {
@@ -54,7 +58,12 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
             render_data.opaque_renderables 
         );
 
-        let lighting_pass = builtin::LightingPass::new(context);
+        let lighting_pass = builtin::LightingPass::new(
+            context,
+            gbuffer_normal_texture_handle,
+            gbuffer_albedo_texture_handle,
+            gbuffer_depth_texture_handle
+        );
 
         Self {
             scene,
@@ -66,6 +75,15 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
         }
     }
 
+    fn update(&mut self) {
+        
+    }
+
+    fn resize(&mut self, context: &Context, width: u32, height: u32) {
+        self.write_gbuffers_pass.on_resize(context, width, height);
+        self.lighting_pass.on_resize(context, width, height);
+    }
+
     fn render(&mut self, context: &Context, frame_resource: &mut FrameResource) {
         let mut encoder = &mut frame_resource.encoder;
         self.write_gbuffers_pass.set_frame_data(context, &WriteGBuffersPassFrameData {
@@ -74,16 +92,8 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
         });
         self.write_gbuffers_pass.execute(&mut encoder, context);
 
-        let normal_texture_view = context.get_texture_view(self.gbuffer_normal_texture_handle).expect("Failed to get gbuffer normal texture view");
-        let albedo_texture_view = context.get_texture_view(self.gbuffer_albedo_texture_handle).expect("Failed to get gbuffer albedo texture view");
-        let depth_texture_view = context.get_texture_view(self.gbuffer_depth_texture_handle).expect("Failed to get gbuffer depth texture view");
-
         self.lighting_pass.update_frame_data(context, &LightingPassFrameData {
-            camera_buffer: &frame_resource.camera_buffer,
             view: &frame_resource.output_view,
-            normal_texture_view,
-            albedo_texture_view,
-            depth_texture_view
         });
 
         self.lighting_pass.execute(&mut encoder, context);
