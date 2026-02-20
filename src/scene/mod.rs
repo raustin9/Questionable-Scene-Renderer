@@ -36,7 +36,7 @@ pub struct Node<'a> {
     pub geometry: Option<InputGeometry<'a>>,
 
     /// The diffuse_texture of this scene node.
-    pub texture: Option<&'a str>,
+    pub material_path: &'a str,
 
     // Transforms to manipulate the object.
     // These will be applied in the order 
@@ -48,7 +48,7 @@ impl<'a> Node<'a> {
     pub fn new() -> Self {
         Self {
             geometry: None,
-            texture: None,
+            material_path: "resources/materials/default_material.png",
             transforms: vec![]
         }
     }
@@ -61,7 +61,7 @@ impl<'a> Node<'a> {
 
     /// Set the diffuse texture of the node in the scene
     pub fn with_texture(&mut self, texture: &'a str) -> &mut Self {
-        self.texture = Some(texture);
+        self.material_path = texture;
         self
     }
 

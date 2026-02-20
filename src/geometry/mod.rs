@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-
-use cgmath::SquareMatrix;
+use std::{collections::HashMap};
 
 pub trait Vertex {
     fn layout() -> wgpu::VertexBufferLayout<'static>;
@@ -47,7 +45,6 @@ pub(crate) struct Mesh {
     pub vertex_count: u32,
     pub index_buffer: Option<wgpu::Buffer>,
     pub index_count: u32,
-    pub model_matrix: cgmath::Matrix4<f32>
 }
 
 impl Mesh {
@@ -57,7 +54,6 @@ impl Mesh {
             vertex_count,
             index_buffer,
             index_count,
-            model_matrix: cgmath::Matrix4::identity(),
         }
     }
 }
@@ -134,4 +130,15 @@ impl<'a> InputGeometry<'a> {
             indices: Some(indices),
         }
     }
+}
+
+fn get_normal_for_point(a: [f32; 3], b: [f32; 3], c: [f32; 3]) -> [f32; 3] {
+    let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+
+    [
+        u[1] * v[2] - u[2] * v[1], 
+        u[2] * v[0] - u[0] * v[2], 
+        u[0] * v[1] - u[1] * v[0], 
+    ]
 }

@@ -10,8 +10,9 @@ pub mod renderer;
 pub mod render_graph;
 pub mod resource;
 pub mod builtin;
+pub mod material;
 
-use crate::{geometry::{self, Mesh}, gfx::resource::{ResourceData, ResourceId, TextureHandle, TextureRegistry}, shader::UniformBuffer};
+use crate::{geometry::{Mesh}, gfx::resource::{ResourceData, ResourceId, TextureHandle, TextureRegistry, SamplerDescriptor}, shader::UniformBuffer};
 
 pub struct Context {
     device: wgpu::Device,
@@ -20,7 +21,6 @@ pub struct Context {
     surface_configured: bool,
     queue: wgpu::Queue,
     camera_buffer: wgpu::Buffer,
-    world_buffer: wgpu::Buffer,
     resources: HashMap<ResourceId, ResourceData>,
     texture_registry: TextureRegistry,
 }
@@ -29,7 +29,6 @@ pub struct FrameResource {
     encoder: wgpu::CommandEncoder,
     output_view: wgpu::TextureView,
     output: wgpu::SurfaceTexture,
-    world_buffer: wgpu::Buffer,
     camera_buffer: wgpu::Buffer,
 }
 
@@ -83,32 +82,6 @@ impl Camera {
     }
 }
 
-// TODO: abstract this
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct DataUniform {
-    pub model_matrix: [[f32; 4]; 4],
-    pub normal_model_matrix: [[f32; 4]; 4],
-}
-
-const VERTICES: &[geometry::GBufferVertex] = &[
-    geometry::GBufferVertex {
-        position: [0.0, 0.5, 0.0],
-        normal: [0.0, 0.0, -1.0],
-        texel: [0.0, 0.5]
-    },
-    geometry::GBufferVertex {
-        position: [-0.5, -0.5, 0.0],
-        normal: [0.0, 0.0, -1.0],
-        texel: [-0.5, -0.5]
-    },
-    geometry::GBufferVertex {
-        position: [0.5, -0.5, 0.0],
-        normal: [0.0, 0.0, -1.0],
-        texel: [0.5, -0.5]
-    },
-];
-
 
 impl<'a> Context {
     pub async fn new(window: Arc<Window>) -> Self {
@@ -148,28 +121,13 @@ impl<'a> Context {
             aspect: surface_config.width as f32 / surface_config.height as f32,
             fovy: 45.0,
             znear: 0.1,
-            zfar: 2000.0,
+            zfar: 1000.0,
         };
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_projections(&camera);
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("camera_uniform_buffer"),
             contents: bytemuck::cast_slice(&[camera_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
-        });
-
-        let model_matrix = cgmath::Matrix4::from_translation(cgmath::Vector3::<f32> { 
-            x: 0.0, y: 0.0, z: 0.0
-        });
-        let inverse_model = model_matrix.invert().unwrap();
-        let inverse_transpose_model = inverse_model.transpose();
-        let data_uniform = DataUniform {
-            model_matrix: model_matrix.into(),
-            normal_model_matrix: inverse_transpose_model.into()
-        };
-        let world_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("world_uniform_buffer"),
-            contents: bytemuck::cast_slice(&[data_uniform]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
         });
 
@@ -182,7 +140,6 @@ impl<'a> Context {
             surface_config,
             surface_configured: false,
             camera_buffer,
-            world_buffer,
 
             resources: HashMap::new(),
             texture_registry,
@@ -223,10 +180,16 @@ impl<'a> Context {
     pub fn find_present_mode(present_modes: &[wgpu::PresentMode]) -> wgpu::PresentMode {
         for present_mode in present_modes {
             if *present_mode == wgpu::PresentMode::Immediate {
+                log::info!("Using immediate mode");
                 return wgpu::PresentMode::Immediate;
+            }
+            if *present_mode == wgpu::PresentMode::Mailbox {
+                log::info!("Using mailbox mode");
+                return wgpu::PresentMode::Mailbox;
             }
         }
 
+        log::info!("Using FIFO mode");
         wgpu::PresentMode::Fifo
     }
 
@@ -259,7 +222,6 @@ impl<'a> Context {
             output, 
             output_view, 
             camera_buffer: self.camera_buffer.clone(), 
-            world_buffer: self.world_buffer.clone() 
         }))
     }
 
@@ -272,8 +234,31 @@ impl<'a> Context {
 
     // Create a texture resource to be used by consumers like the render graph
     // TODO: update the lifetime params of the return value here
-    pub fn create_texture(&mut self, descriptor: resource::TextureDescriptor) -> resource::TextureHandle {
-        self.texture_registry.create_texture(&self.device, descriptor)
+    pub fn create_texture(&mut self, descriptor: resource::TextureDescriptor, sampler_options: Option<SamplerDescriptor>) -> resource::TextureHandle {
+        self.texture_registry.create_texture(&self.device, descriptor, sampler_options)
+    }
+
+    pub fn write_texture(&self, handle: TextureHandle, data: &[u8], size: wgpu::Extent3d, bytes_per_pixel: u32) {
+        let texture = self.texture_registry.get_texture(handle);
+        match texture {
+            None => {},
+            Some(found_texture) => 
+                self.queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: found_texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All
+                    }, 
+                    data, 
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(size.width * bytes_per_pixel),
+                        rows_per_image: Some(size.height)
+                    }, 
+                    size
+                ),
+        }
     }
 
     pub fn create_uniform_buffer(&mut self, usages: wgpu::BufferUsages, data: &[u8]) -> ResourceId {
@@ -321,6 +306,10 @@ impl<'a> Context {
 
     pub fn get_texture_view(&self, handle: TextureHandle) -> Option<&wgpu::TextureView> {
         self.texture_registry.get_view(handle)
+    }
+
+    pub fn get_sampler(&self, handle: TextureHandle) -> Option<&wgpu::Sampler> {
+        self.texture_registry.get_sampler(handle)
     }
 
     pub fn get_resource(&self, id: &ResourceId) -> Option<&ResourceData> {

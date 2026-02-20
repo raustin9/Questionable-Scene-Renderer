@@ -92,6 +92,9 @@ fn fs_main(
 //  // some manual ambient
     result += vec3(0.02);
 
+    let light_ambient = vec3f(0.5, 0.5, 0.5);
+    result = light_ambient * albedo;
+
 //  return vec4(result, 1.0);
     
     // return vec4(0.5, 0.5, 0.5, 1.0);

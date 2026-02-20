@@ -9,6 +9,8 @@
 # for more information, if you are building a library or an executable.
 Cargo.lock
 
+/resources/materials/
+
 # Optional: uncomment to ignore specific files
 #
 # # Lokal

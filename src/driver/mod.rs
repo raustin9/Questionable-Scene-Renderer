@@ -100,9 +100,9 @@ impl<'a> ApplicationHandler for Driver<'a> {
 
                 print!("\rFrame Count: {}", self.frame_count);
 
-                if self.last_start_time.elapsed().as_secs() > 5 {
+                if self.last_start_time.elapsed().as_secs() > 2 {
                     let elapsed_time = self.last_start_time.elapsed().as_secs();
-                    let fps = self.frame_count / elapsed_time;
+                    let fps = self.frame_count as f32 / elapsed_time as f32;
                     
                     window.set_title(format!("FPS: {}", fps).as_str());
 

@@ -63,6 +63,28 @@ impl TextureSize {
     }
 }
 
+pub enum SamplerRepeat {
+    Repeat,
+    Clamp,
+    MirrorRepeat,
+    Border(wgpu::Color)
+}
+
+impl From<SamplerRepeat> for wgpu::AddressMode {
+    fn from(value: SamplerRepeat) -> Self {
+        match value {
+            SamplerRepeat::Clamp => wgpu::AddressMode::ClampToEdge,
+            SamplerRepeat::Repeat => wgpu::AddressMode::Repeat,
+            SamplerRepeat::Border(_color) => wgpu::AddressMode::ClampToBorder,
+            SamplerRepeat::MirrorRepeat => wgpu::AddressMode::MirrorRepeat,
+        }
+    }
+}
+
+pub struct SamplerDescriptor {
+    pub address_mode: SamplerRepeat,
+}
+
 pub struct TextureDescriptor {
     pub label: String,
     pub format: wgpu::TextureFormat,
@@ -77,6 +99,8 @@ pub struct TextureResource {
 
     /// The wpgu texture view
     pub view: wgpu::TextureView,
+
+    pub sampler: Option<wgpu::Sampler>,
 
     /// Description of the texture used to create it.
     /// Can be used to find other relevant information 
@@ -111,7 +135,7 @@ impl TextureRegistry {
 
     /// Create and store a texture resource.
     /// Returns a handle to the resource to be retrieved
-    pub fn create_texture(&mut self, device: &wgpu::Device, descriptor: TextureDescriptor) -> TextureHandle {
+    pub fn create_texture(&mut self, device: &wgpu::Device, descriptor: TextureDescriptor, sampler_options: Option<SamplerDescriptor>) -> TextureHandle {
         let handle = TextureHandle::new();
 
         let (width, height) = self.resolve_size(&descriptor.size);
@@ -135,9 +159,28 @@ impl TextureRegistry {
             ..Default::default()
         });
 
+        let sampler = match sampler_options {
+            None => None,
+            Some(options) => {
+                let address_mode = options.address_mode.into();
+                
+                Some(device.create_sampler(&wgpu::SamplerDescriptor {
+                    label: Some("sampler"),
+                    address_mode_u: address_mode,
+                    address_mode_v: address_mode,
+                    address_mode_w: address_mode,
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Nearest,
+                    mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+                    ..Default::default()
+                }))
+            }
+        };
+
         let resource = TextureResource {
             texture,
             view,
+            sampler,
             descriptor
         };
 
@@ -154,6 +197,18 @@ impl TextureRegistry {
     /// The `wgpu::Texure` for the texture resource corresponding to the input handle
     pub fn get_texture(&self, handle: TextureHandle) -> Option<&wgpu::Texture> {
         self.textures.get(&handle).map(|t| &t.texture)
+    }
+
+    pub fn get_sampler(&self, handle: TextureHandle) -> Option<&wgpu::Sampler> {
+        match self.textures.get(&handle) {
+            Some(texture) => {
+                match &texture.sampler {
+                    Some(sampler) => Some(sampler),
+                    None => None,
+                }
+            },
+            None => None
+        }
     }
 
     /// Get the resolved width and height from a `TextureSize` enum value

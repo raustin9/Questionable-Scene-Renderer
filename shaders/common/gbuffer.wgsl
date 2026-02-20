@@ -31,6 +31,10 @@ fn vs_main(
     return output;
 }
 
+// Bind group for texture
+@group(2) @binding(0) var t_diffuse: texture_2d<f32>;
+@group(2) @binding(1) var s_diffuse: sampler;
+
 // FRAG
 struct GBufferOutput {
   @location(0) normal : vec4f,
@@ -42,7 +46,7 @@ struct GBufferOutput {
 @fragment
 fn fs_main(
   @location(0) fragNormal: vec3f,
-  @location(1) fragUV : vec2f
+  @location(1) fragUV : vec2f,
 ) -> GBufferOutput {
   // faking some kind of checkerboard texture
   let uv = floor(30.0 * fragUV);
@@ -50,7 +54,9 @@ fn fs_main(
 
   var output : GBufferOutput;
   output.normal = vec4(normalize(fragNormal), 1.0);
-  output.albedo = vec4(c, c, c, 1.0);
+  // output.albedo = vec4(c, c, c, 1.0);
+
+  output.albedo = textureSample(t_diffuse, s_diffuse, fragUV);
 
   return output;
 }

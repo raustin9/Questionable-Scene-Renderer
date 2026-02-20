@@ -2,7 +2,7 @@ use std::convert::identity;
 
 use cgmath::{Rad, prelude::*};
 use wgpu::util::DeviceExt;
-use crate::{RotationUnit, Scene, Transform, camera::Camera, gfx::{Context, FrameResource, builtin::{self, LightingPassFrameData, WriteGBuffersPassFrameData}, render_graph::RenderPassNode, resource::{self, ResourceData, ResourceId, TextureHandle}}};
+use crate::{RotationUnit, Scene, Transform, camera::Camera, gfx::{Context, FrameResource, builtin::{self, LightingPassFrameData, WriteGBuffersPassFrameData}, material::Material, render_graph::RenderPassNode, resource::{self, ResourceData, ResourceId, TextureHandle}}};
 
 pub trait Renderer<'a> {
     fn new(scene: &'a Scene<'a>, context: &mut Context) -> Self;
@@ -18,6 +18,7 @@ pub struct DeferredRenderer<'a> {
     scene: &'a Scene<'a>,
     write_gbuffers_pass: builtin::WriteGBuffersPass,
     lighting_pass: builtin::LightingPass,
+    debug_grid_pass: builtin::DebugGridPass,
 
     gbuffer_normal_texture_handle: TextureHandle,
     gbuffer_albedo_texture_handle: TextureHandle,
@@ -33,7 +34,8 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
                 size: resource::TextureSize::Full,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
                 format: wgpu::TextureFormat::Rgba16Float
-            }
+            },
+            None
         );
         
         let gbuffer_albedo_texture_handle = context.create_texture(resource::TextureDescriptor {
@@ -41,15 +43,19 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
                 size: resource::TextureSize::Full,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
                 format: wgpu::TextureFormat::Bgra8Unorm
-            }
+            },
+            None
         );
         
         let gbuffer_depth_texture_handle = context.create_texture(resource::TextureDescriptor {
-            label: String::from("depth_texture"), 
-            size: resource::TextureSize::Full,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING, 
-            format: wgpu::TextureFormat::Depth24Plus
-        });
+                label: String::from("depth_texture"), 
+                size: resource::TextureSize::Full,
+                usage: 
+                    wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                format: wgpu::TextureFormat::Depth24Plus
+            },
+            None
+        );
 
         let write_gbuffers_pass = builtin::WriteGBuffersPass::new(
             context, 
@@ -66,10 +72,13 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
             gbuffer_depth_texture_handle
         );
 
+        let debug_grid_pass = builtin::DebugGridPass::new(context, gbuffer_depth_texture_handle);
+
         Self {
             scene,
             write_gbuffers_pass,
             lighting_pass,
+            debug_grid_pass,
             gbuffer_depth_texture_handle,
             gbuffer_albedo_texture_handle,
             gbuffer_normal_texture_handle,
@@ -83,20 +92,22 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
     fn resize(&mut self, context: &Context, width: u32, height: u32) {
         self.write_gbuffers_pass.on_resize(context, width, height);
         self.lighting_pass.on_resize(context, width, height);
+        self.debug_grid_pass.on_resize(context, width, height);
     }
 
     fn render(&mut self, context: &Context, frame_resource: &mut FrameResource) {
         let mut encoder = &mut frame_resource.encoder;
         self.write_gbuffers_pass.set_frame_data(context, &WriteGBuffersPassFrameData {
-            world_buffer: &frame_resource.world_buffer,
             camera_buffer: &frame_resource.camera_buffer,
         });
         self.write_gbuffers_pass.execute(&mut encoder, context);
 
+        self.debug_grid_pass.update_frame_data(frame_resource.output_view.clone());
+        self.debug_grid_pass.execute(&mut encoder, context);
+
         self.lighting_pass.update_frame_data(context, &LightingPassFrameData {
             view: &frame_resource.output_view,
         });
-
         self.lighting_pass.execute(&mut encoder, context);
     }
 }
@@ -113,6 +124,7 @@ pub struct Renderable {
     pub model_matrix: cgmath::Matrix4<f32>,
     pub normal_model_matrix: cgmath::Matrix4<f32>, 
     pub uniform: wgpu::Buffer,
+    pub material: Material
 }
 
 pub struct RenderData {
@@ -183,11 +195,14 @@ impl<'a> RenderData {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
             });
 
+            let material = Material::from_path(node.material_path, context);
+
             render_data.opaque_renderables.push(Renderable { 
                 mesh: Some(mesh_handle), 
                 model_matrix, 
                 normal_model_matrix: inverse_transpose_model,
-                uniform
+                uniform,
+                material,
             });
         }
 
