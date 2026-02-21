@@ -65,13 +65,26 @@ pub struct InputGeometry<'a> {
 }
 
 impl<'a> InputGeometry<'a> {
+    // TODO: make this return different meshes from each model found in a .obj file
     pub fn from_obj(file_path: &'a str) -> Self {
-        let (models, _materials) = tobj::load_obj(file_path, &tobj::LoadOptions {
+        // let mut constructed_models: Vec<Self> = vec![];
+        
+        let (models, materials) = tobj::load_obj(file_path, &tobj::LoadOptions {
             triangulate: true,
             single_index: false,
             ..Default::default()
         }).expect("Failed to load obj file");
         println!("Loading {} models", models.len());
+
+        match materials {
+            Err(e) => println!("{:?}", e),
+            Ok(materials) => {
+                for material in materials {
+                    println!("Found Material: {}", material.name);
+                    println!("{:?}", material);
+                }
+            }
+        };
 
         let mut vertices: Vec<GBufferVertex> = Vec::new();
         let mut indices: Vec<u32> = Vec::new();
@@ -123,12 +136,19 @@ impl<'a> InputGeometry<'a> {
                 }
             }
         }
-
         Self {
             name: file_path,
             vertices,
             indices: Some(indices),
         }
+
+//        constructed_models.push(Self {
+//            name: file_path,
+//            vertices,
+//            indices: Some(indices),
+//        });
+//
+//        constructed_models
     }
 }
 
