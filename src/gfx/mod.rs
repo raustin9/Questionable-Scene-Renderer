@@ -1,6 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
 
-use cgmath::{Matrix, SquareMatrix};
 use wgpu::{SurfaceError, util::DeviceExt};
 use winit::window::Window;
 
@@ -12,7 +11,7 @@ pub mod resource;
 pub mod builtin;
 pub mod material;
 
-use crate::{geometry::{Mesh}, gfx::resource::{ResourceData, ResourceId, TextureHandle, TextureRegistry, SamplerDescriptor}, shader::UniformBuffer};
+use crate::{geometry::Mesh, gfx::resource::{BufferHandle, BufferRegistry, ResourceData, ResourceId, SamplerDescriptor, TextureHandle, TextureRegistry}, shader::UniformBuffer};
 
 pub struct Context {
     device: wgpu::Device,
@@ -20,34 +19,17 @@ pub struct Context {
     surface_config: wgpu::SurfaceConfiguration,
     surface_configured: bool,
     queue: wgpu::Queue,
-    camera_buffer: wgpu::Buffer,
+    // camera_buffer: wgpu::Buffer,
     resources: HashMap<ResourceId, ResourceData>,
     texture_registry: TextureRegistry,
+    buffer_registry: BufferRegistry,
 }
 
 pub struct FrameResource {
     encoder: wgpu::CommandEncoder,
     output_view: wgpu::TextureView,
     output: wgpu::SurfaceTexture,
-    camera_buffer: wgpu::Buffer,
-}
-
-// TODO: abstract this
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct CameraUniform {
-    view_projection: [[f32; 4]; 4],
-    inv_view_projection: [[f32; 4]; 4],
-}
-
-struct Camera {
-    pub eye: cgmath::Point3<f32>,
-    pub target: cgmath::Point3<f32>,
-    pub up: cgmath::Vector3<f32>,
-    pub aspect: f32,
-    pub fovy: f32,
-    pub znear: f32,
-    pub zfar: f32,
+    // camera_buffer: wgpu::Buffer,
 }
 
 #[rustfmt::skip]
@@ -57,31 +39,6 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::from_co
     cgmath::Vector4::new(0.0, 0.0, 0.5, 0.0),
     cgmath::Vector4::new(0.0, 0.0, 0.5, 1.0),
 );
-
-impl CameraUniform {
-    pub fn new() -> Self {
-        use cgmath::SquareMatrix;
-        Self { view_projection: cgmath::Matrix4::identity().into(), inv_view_projection: cgmath::Matrix4::identity().into() }
-    }
-
-    pub fn update_projections(&mut self, camera: &Camera) {
-        self.view_projection = camera.build_view_projection_matrix().into();
-        self.inv_view_projection = camera.build_inv_view_projection_matrix().into();
-    }
-}
-
-impl Camera {
-    pub fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
-        let view = cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
-        let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
-
-        return OPENGL_TO_WGPU_MATRIX * proj * view;
-    }
-    pub fn build_inv_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
-        return self.build_view_projection_matrix().invert().unwrap();
-    }
-}
-
 
 impl<'a> Context {
     pub async fn new(window: Arc<Window>) -> Self {
@@ -114,24 +71,25 @@ impl<'a> Context {
             desired_maximum_frame_latency: 2,
         };
 
-        let camera = Camera {
-            eye: (0.0, 16.0, 32.0).into(),
-            target: (0.0, 0.0, 0.0).into(),
-            up: cgmath::Vector3::unit_y(),
-            aspect: surface_config.width as f32 / surface_config.height as f32,
-            fovy: 45.0,
-            znear: 0.1,
-            zfar: 1000.0,
-        };
-        let mut camera_uniform = CameraUniform::new();
-        camera_uniform.update_projections(&camera);
-        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("camera_uniform_buffer"),
-            contents: bytemuck::cast_slice(&[camera_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
-        });
+//        let camera = Camera {
+//            eye: (0.0, 16.0, 32.0).into(),
+//            target: (0.0, 0.0, 0.0).into(),
+//            up: cgmath::Vector3::unit_y(),
+//            aspect: surface_config.width as f32 / surface_config.height as f32,
+//            fovy: 45.0,
+//            znear: 0.1,
+//            zfar: 1000.0,
+//        };
+//        let mut camera_uniform = CameraUniform::new();
+//        camera_uniform.update_projections(&camera);
+//        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+//            label: Some("camera_uniform_buffer"),
+//            contents: bytemuck::cast_slice(&[camera_uniform]),
+//            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
+//        });.
 
         let texture_registry = TextureRegistry::new(window_size.width, window_size.height);
+        let buffer_registry = BufferRegistry::new();
 
         Self {
             device,
@@ -139,10 +97,11 @@ impl<'a> Context {
             surface,
             surface_config,
             surface_configured: false,
-            camera_buffer,
+            // camera_buffer,
 
             resources: HashMap::new(),
             texture_registry,
+            buffer_registry,
         }
     }
 
@@ -221,7 +180,7 @@ impl<'a> Context {
             encoder, 
             output, 
             output_view, 
-            camera_buffer: self.camera_buffer.clone(), 
+            // camera_buffer: self.camera_buffer.clone(), 
         }))
     }
 
@@ -259,6 +218,22 @@ impl<'a> Context {
                     size
                 ),
         }
+    }
+
+    pub fn create_buffer(&mut self, usages: wgpu::BufferUsages, data: &[u8]) -> BufferHandle {
+        self.buffer_registry.create_buffer(&self.device, usages, data)
+    }
+
+    pub fn get_buffer(&self, handle: BufferHandle) -> Option<&wgpu::Buffer> {
+        self.buffer_registry.get_buffer(handle)
+    }
+
+    pub fn get_buffer_usages(&self, handle: BufferHandle) -> Option<&wgpu::BufferUsages> {
+        self.buffer_registry.get_usages(handle)
+    }
+
+    pub fn write_buffer(&self, handle: BufferHandle, offset: u64, data: &[u8]) {
+        self.buffer_registry.write_buffer(handle, &self.queue, offset, data);
     }
 
     pub fn create_uniform_buffer(&mut self, usages: wgpu::BufferUsages, data: &[u8]) -> ResourceId {

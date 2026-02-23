@@ -1,14 +1,20 @@
-use crate::geometry::{InputGeometry, Mesh, ObjModel};
+use crate::{camera::Camera, geometry::{InputGeometry, Mesh, ObjModel}};
 
 pub struct Scene<'a> {
+    pub width: u32,
+    pub height: u32,
     pub nodes: Vec<Node<'a>>,
+    pub camera: Camera
 }
 
 impl<'a> Scene<'a> {
-    pub fn new() -> Self {
+    pub fn new(width: u32, height: u32) -> Self {
         env_logger::init();
         Self {
+            width,
+            height,
             nodes: vec![],
+            camera: Camera::default()
         }
     }
 
@@ -16,6 +22,11 @@ impl<'a> Scene<'a> {
         self.nodes.push(Node::new());
 
         self.nodes.last_mut().unwrap()
+    }
+
+    pub fn set_camera(&mut self, camera: Camera) -> &mut Self {
+        self.camera = camera;
+        self
     }
 }
 
@@ -86,11 +97,6 @@ impl<'a> Node<'a> {
         self.model = Some(InputGeometry::from_obj(file_path));
         self
     }
-
-//    pub fn with_model(&mut self, file_path: &'a str) -> &mut Self {
-//        self.objs = Some(ObjModel::get_models(file_path));
-//        self
-//    }
 
     pub fn with_model(&mut self, spec: ModelSpec) -> &mut Self {
         match spec {

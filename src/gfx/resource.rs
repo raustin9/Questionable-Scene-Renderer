@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use wgpu::util::DeviceExt;
+
 use crate::{Texture, shader::UniformBuffer, geometry::Mesh};
 
 #[derive(Hash, Eq, PartialEq, Debug, Copy, Clone)]
@@ -38,6 +40,62 @@ pub struct ResourceHandle<'a> {
     pub id: ResourceId,
     pub kind: ResourceKind,
     pub resource: &'a ResourceData,
+}
+
+pub struct BufferResource {
+    pub buffer: wgpu::Buffer,
+    pub usages: wgpu::BufferUsages,
+}
+
+pub type BufferHandle = ResourceId;
+pub struct BufferRegistry {
+    buffers: HashMap<BufferHandle, BufferResource>,
+
+}
+
+impl BufferRegistry {
+    pub fn new() -> Self {
+        Self {
+            buffers: HashMap::new()
+        }
+    }
+
+    /// Create a buffer and return its handle
+    pub fn create_buffer(&mut self, device: &wgpu::Device, usages: wgpu::BufferUsages, data: &[u8]) -> BufferHandle {
+        let handle = BufferHandle::new();
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("buffer"),
+            contents: data,
+            usage: usages
+        });
+
+        let resource = BufferResource {
+            buffer,
+            usages
+        };
+
+        self.buffers.insert(handle, resource);
+        handle
+    }
+
+    /// Write data to a buffer
+    pub fn write_buffer(&self, handle: BufferHandle, queue: &wgpu::Queue, offset: u64, data: &[u8]) {
+        let resource = self.buffers.get(&handle)
+            .expect("Attempted to retrieve buffer with invalid handle");
+        queue.write_buffer(&resource.buffer, offset, data);
+    }
+
+    /// Attempt to get a held buffer with a handle.
+    /// Returns `None` if no resource is found.
+    pub fn get_buffer(&self, handle: BufferHandle) -> Option<&wgpu::Buffer> {
+        self.buffers.get(&handle).map(|b| &b.buffer)
+    }
+    
+    /// Attempt to get a held buffer's usages with a handle.
+    /// Returns `None` if no resource is found.
+    pub fn get_usages(&self, handle: BufferHandle) -> Option<&wgpu::BufferUsages> {
+        self.buffers.get(&handle).map(|b| &b.usages)
+    }
 }
 
 pub enum TextureSize {

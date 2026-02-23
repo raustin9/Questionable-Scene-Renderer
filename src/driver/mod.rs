@@ -1,8 +1,8 @@
 use std::{sync::{Arc, Mutex}, time::Instant};
 
-use winit::{application::ApplicationHandler, error::EventLoopError, event::{KeyEvent, WindowEvent}, event_loop::{ControlFlow, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::Window};
+use winit::{application::ApplicationHandler, dpi::LogicalSize, error::EventLoopError, event::{KeyEvent, WindowEvent}, event_loop::{ControlFlow, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::Window};
 
-use crate::{Scene, gfx::{self, renderer::{DeferredRenderer, Renderer}}};
+use crate::{Scene, camera::{Camera, CameraController}, gfx::{self, renderer::{DeferredRenderer, Renderer}}};
 
 pub struct Driver<'a> {
     /// Window for driving the application
@@ -12,6 +12,7 @@ pub struct Driver<'a> {
     renderer: Option<DeferredRenderer<'a>>,
     frame_count: u64,
     last_start_time: Instant,
+    camera_controller: CameraController,
 }
 
 impl<'a> Driver<'a> {
@@ -27,6 +28,7 @@ impl<'a> Driver<'a> {
             scene,
             frame_count: 0,
             last_start_time: Instant::now(),
+            camera_controller: CameraController::new(0.2)
         };
         
         return event_loop.run_app(&mut driver);
@@ -35,7 +37,9 @@ impl<'a> Driver<'a> {
 
 impl<'a> ApplicationHandler for Driver<'a> {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        let window_attributes = Window::default_attributes();
+        let window_attributes = Window::default_attributes()
+            .with_inner_size(LogicalSize::new(self.scene.width, self.scene.height));
+        
         let window = Arc::new(event_loop.create_window(window_attributes)
             .expect("Failed to create window"));
 
@@ -83,6 +87,7 @@ impl<'a> ApplicationHandler for Driver<'a> {
 
                     // Got a frame resource. Execute rendering
                     Ok(Some(mut frame_resource)) => {
+                        renderer.update_camera(&self.camera_controller, context);
                         renderer.render(context, &mut frame_resource);
                         context.end_frame(frame_resource);
                     },
@@ -123,7 +128,9 @@ impl<'a> ApplicationHandler for Driver<'a> {
                 .. 
             } => match (code, key_state.is_pressed()) {
                 (KeyCode::Escape, true) => event_loop.exit(),
-                _ => {}
+                _ => {
+                    self.camera_controller.handle_key(code, key_state.is_pressed());
+                }
             },
             _ => {}
         }

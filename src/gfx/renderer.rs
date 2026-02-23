@@ -1,8 +1,5 @@
-use std::convert::identity;
-
-use cgmath::{Rad, prelude::*};
-use wgpu::util::DeviceExt;
-use crate::{RotationUnit, Scene, Transform, camera::Camera, gfx::{Context, FrameResource, builtin::{self, LightingPassFrameData, WriteGBuffersPassFrameData}, material::Material, render_graph::RenderPassNode, resource::{self, ResourceData, ResourceId, TextureHandle}}};
+use cgmath::{prelude::*};
+use crate::{RotationUnit, Scene, Transform, camera::{Camera, CameraController, CameraUniform}, gfx::{Context, FrameResource, builtin::{self, LightingPassFrameData, WriteGBuffersPassFrameData}, material::Material, render_graph::RenderPassNode, resource::{self, BufferHandle, ResourceData, ResourceId, TextureHandle}}};
 
 pub trait Renderer<'a> {
     fn new(scene: &'a Scene<'a>, context: &mut Context) -> Self;
@@ -12,6 +9,8 @@ pub trait Renderer<'a> {
     fn resize(&mut self, context: &Context, width: u32, height: u32);
 
     fn update(&mut self);
+
+    fn update_camera(&mut self, camera_controller: &CameraController, context: &Context);
 }
 
 pub struct DeferredRenderer<'a> {
@@ -23,11 +22,22 @@ pub struct DeferredRenderer<'a> {
     gbuffer_normal_texture_handle: TextureHandle,
     gbuffer_albedo_texture_handle: TextureHandle,
     gbuffer_depth_texture_handle: TextureHandle,
+
+    camera_buffer_handle: BufferHandle,
+    camera: Camera,
 }
 
 impl<'a> Renderer<'a> for DeferredRenderer<'a> {
     fn new(scene: &'a Scene<'a>, context: &mut Context) -> Self {
         let render_data = RenderData::new(scene, context);
+
+        let camera = render_data.camera;
+        let mut camera_uniform = CameraUniform::new();
+        camera_uniform.update_projections(&camera);
+        let camera_buffer_handle = context.create_buffer(
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, 
+            bytemuck::cast_slice(&[camera_uniform])
+        );
         
         let gbuffer_normal_texture_handle = context.create_texture(resource::TextureDescriptor {
                 label: String::from("normal_texture"),
@@ -62,17 +72,23 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
             gbuffer_normal_texture_handle,
             gbuffer_albedo_texture_handle,
             gbuffer_depth_texture_handle,
-            render_data.opaque_renderables 
+            camera_buffer_handle,
+            render_data.opaque_renderables,
         );
 
         let lighting_pass = builtin::LightingPass::new(
             context,
             gbuffer_normal_texture_handle,
             gbuffer_albedo_texture_handle,
-            gbuffer_depth_texture_handle
+            gbuffer_depth_texture_handle,
+            camera_buffer_handle
         );
 
-        let debug_grid_pass = builtin::DebugGridPass::new(context, gbuffer_depth_texture_handle);
+        let debug_grid_pass = builtin::DebugGridPass::new(
+            context, 
+            gbuffer_depth_texture_handle,
+            camera_buffer_handle
+        );
 
         Self {
             scene,
@@ -82,11 +98,20 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
             gbuffer_depth_texture_handle,
             gbuffer_albedo_texture_handle,
             gbuffer_normal_texture_handle,
+            camera,
+            camera_buffer_handle,
         }
     }
 
     fn update(&mut self) {
         
+    }
+
+    fn update_camera(&mut self, camera_controller: &CameraController, context: & Context) {
+        let mut camera_uniform = CameraUniform::new();
+        camera_controller.update_camera(&mut self.camera);
+        camera_uniform.update_projections(&self.camera);
+        context.write_buffer(self.camera_buffer_handle, 0, bytemuck::cast_slice(&[camera_uniform]));
     }
 
     fn resize(&mut self, context: &Context, width: u32, height: u32) {
@@ -97,8 +122,11 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
 
     fn render(&mut self, context: &Context, frame_resource: &mut FrameResource) {
         let mut encoder = &mut frame_resource.encoder;
+        let camera_buffer = context.get_buffer(self.camera_buffer_handle)
+            .expect("Failed to get camera buffer");
+
         self.write_gbuffers_pass.set_frame_data(context, &WriteGBuffersPassFrameData {
-            camera_buffer: &frame_resource.camera_buffer,
+            camera_buffer: &camera_buffer,
         });
         self.write_gbuffers_pass.execute(&mut encoder, context);
 
@@ -123,7 +151,8 @@ pub struct Renderable {
     pub mesh: Option<ResourceId>,
     pub model_matrix: cgmath::Matrix4<f32>,
     pub normal_model_matrix: cgmath::Matrix4<f32>, 
-    pub uniform: wgpu::Buffer,
+    pub uniform_handle: BufferHandle,
+    // pub uniform: wgpu::Buffer,
     pub material: Material
 }
 
@@ -140,72 +169,9 @@ impl<'a> RenderData {
         };
 
         // TODO: find camera here
+        render_data.camera = scene.camera;
 
         for node in &scene.nodes {
-            // Get the opaque renderables from the Node.model field
-//            match &node.model {
-//                Some(model) => {
-//                    let mesh_handle = context.create_mesh(
-//                        model.name.as_str(), 
-//                        model.vertices.len() as u32, 
-//                        bytemuck::cast_slice(model.vertices.as_slice()), 
-//                        match &model.indices {
-//                            None => None,
-//                            Some(indices) => Some(indices.as_slice())
-//                        }
-//                    );
-//
-//                    // Form the model matrix
-//                    let mut model_matrix = cgmath::Matrix4::<f32>::identity();
-//                    for transform in &node.transforms {
-//                        match transform {
-//                            Transform::Scale(scale) => {
-//                                let scale_matrix = cgmath::Matrix4::from_nonuniform_scale(scale[0], scale[1], scale[2]);
-//                                model_matrix = model_matrix * scale_matrix;
-//                            },
-//                            Transform::Rotate(axis, unit) => {
-//                                let _rotation = cgmath::Matrix4::from_axis_angle(
-//                                    cgmath::Vector3 { x: axis[0], y: axis[1], z: axis[2] }, 
-//                                    match unit {
-//                                        RotationUnit::Rad(scalar) => cgmath::Rad(scalar.clone()),
-//                                        RotationUnit::Deg(scalar) => cgmath::Rad(scalar * 0.0174533),
-//                                    }
-//                                );
-//                            },
-//                            Transform::Translate(translate) => {
-//                                let translation_matrix = cgmath::Matrix4::<f32>::from_translation(cgmath::Vector3 { x: translate[0], y: translate[1], z: translate[2] });
-//                                model_matrix = model_matrix * translation_matrix;
-//                            }
-//                        }
-//                    }
-//
-//                    let inverse_model = model_matrix.invert().expect("Failed to invert model matrix");
-//                    let inverse_transpose_model = inverse_model.transpose();
-//
-//                    let uniform_data = RenderableGeometryUniform {
-//                        model_matrix: model_matrix.into(),
-//                        normal_model_matrix: inverse_transpose_model.into()
-//                    };
-//
-//                    let uniform = context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-//                        label: Some("geometry_uniform"),
-//                        contents: bytemuck::cast_slice(&[uniform_data]),
-//                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
-//                    });
-//
-//                    let material = Material::from_path(node.material_path, context);
-//
-//                    render_data.opaque_renderables.push(Renderable { 
-//                        mesh: Some(mesh_handle), 
-//                        model_matrix, 
-//                        normal_model_matrix: inverse_transpose_model,
-//                        uniform,
-//                        material,
-//                    });
-//                },
-//                None => {},
-//            }
-
             // Get the models from the Node.objs
             match &node.objs {
                 Some(models) => {
@@ -252,11 +218,10 @@ impl<'a> RenderData {
                             normal_model_matrix: inverse_transpose_model.into()
                         };
 
-                        let uniform = context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("geometry_uniform"),
-                            contents: bytemuck::cast_slice(&[uniform_data]),
-                            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
-                        });
+                        let uniform_handle = context.create_buffer(
+                            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                            bytemuck::cast_slice(&[uniform_data])
+                        );
 
                         let default_material = Material::from_path(&node.material_path, context);
                         let material = match &model.material {
@@ -271,13 +236,11 @@ impl<'a> RenderData {
                             None => default_material,
                         };
 
-                        // let material = Material::from_path(node.material_path, context);
-
                         render_data.opaque_renderables.push(Renderable { 
                             mesh: Some(mesh_handle), 
                             model_matrix, 
                             normal_model_matrix: inverse_transpose_model,
-                            uniform,
+                            uniform_handle,
                             material,
                         });
                     }

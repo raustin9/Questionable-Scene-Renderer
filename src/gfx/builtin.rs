@@ -1,8 +1,4 @@
-use std::collections::HashMap;
-
-use image::imageops::FilterType::Triangle;
-
-use crate::{geometry::{GBufferVertex, Vertex}, gfx::{Context, render_graph::{RenderPassKind, RenderPassNode}, renderer::Renderable, resource::{ResourceData, ResourceId, TextureHandle}, texture}, shader::{BindGroupLayout, BindGroupLayoutBuilder, ShaderBuilder}};
+use crate::{geometry::{GBufferVertex, Vertex}, gfx::{Context, render_graph::{RenderPassKind, RenderPassNode}, renderer::Renderable, resource::{BufferHandle, ResourceData, ResourceId, TextureHandle}, texture}, shader::{BindGroupLayout, BindGroupLayoutBuilder, ShaderBuilder}};
 
 pub struct WriteGBuffersPassFrameData<'a> {
     pub camera_buffer: &'a wgpu::Buffer,
@@ -26,6 +22,8 @@ pub struct WriteGBuffersPass {
     albedo_texture_handle: ResourceId,
     depth_texture_handle: ResourceId,
 
+    camera_buffer_handle: BufferHandle,
+
     renderables: Vec<Renderable>,
 }
 
@@ -35,6 +33,7 @@ impl WriteGBuffersPass {
         normal_texture_handle: ResourceId,
         albedo_texture_handle: ResourceId,
         depth_texture_handle: ResourceId,
+        camera_buffer_handle: BufferHandle,
         renderables: Vec<Renderable>
     ) -> Self {
         let normal_texture = context.get_texture(normal_texture_handle).expect("Failed to get normal texture from context");
@@ -125,10 +124,13 @@ impl WriteGBuffersPass {
             cache: None,
         });
 
+        let camera_buffer = context.get_buffer(camera_buffer_handle)
+            .expect("Failed to get camera buffer when creating write gbuffer pass");
+        
         let scene_bind_group = scene_bind_group_layout.create_bind_group(&context.device, &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: context.camera_buffer.as_entire_binding(),
+                resource: camera_buffer.as_entire_binding(),
             },
         ]);
 
@@ -144,6 +146,7 @@ impl WriteGBuffersPass {
             scene_bind_group_layout,
             scene_bind_group,
             renderables,
+            camera_buffer_handle
         }
     }
 
@@ -216,10 +219,12 @@ impl<'a> RenderPassNode for WriteGBuffersPass {
         render_pass.set_pipeline(&self.pipeline);
 
         for renderable in &self.renderables {
+            let uniform = context.get_buffer(renderable.uniform_handle)
+                .expect("Failed to get renderable uniform");
             let geometry_bind_group = self.geometry_bind_group_layout.create_bind_group(&context.device, &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: renderable.uniform.as_entire_binding(),
+                    resource: uniform.as_entire_binding(),
                 }
             ]);
             render_pass.set_bind_group(1, &geometry_bind_group, &[]);
@@ -285,6 +290,9 @@ pub struct LightingPass {
     gbuffer_normal_texture_handle: TextureHandle,
     gbuffer_albedo_texture_handle: TextureHandle,
     gbuffer_depth_texture_handle: TextureHandle,
+
+    #[allow(unused)] 
+    camera_buffer_handle: BufferHandle, // unused for now, but this might be useful later
 }
 
 impl LightingPass {
@@ -293,6 +301,7 @@ impl LightingPass {
         gbuffer_normal_texture_handle: TextureHandle,
         gbuffer_albedo_texture_handle: TextureHandle,
         gbuffer_depth_texture_handle: TextureHandle,
+        camera_buffer_handle: BufferHandle,
     ) -> Self {
         let gbuffer_textures_bind_group_layout = BindGroupLayoutBuilder::new(&context.device, Some("read_gbuffers_layout"))
             .add_texture(wgpu::ShaderStages::FRAGMENT, wgpu::TextureSampleType::Float { filterable: false }, false)
@@ -341,13 +350,15 @@ impl LightingPass {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
             depth_stencil: None,
-//            depth_stencil: Some(wgpu::DepthStencilState {
-//                depth_write_enabled: false,
-//                depth_compare: wgpu::CompareFunction::Always,
-//                format: wgpu::TextureFormat::Depth24Plus,
-//                bias: wgpu::DepthBiasState::default(),
-//                stencil: wgpu::StencilState::default(),
-//            }),
+            /*
+            depth_stencil: Some(wgpu::DepthStencilState {
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::Less,
+                format: wgpu::TextureFormat::Depth24Plus,
+                bias: wgpu::DepthBiasState::default(),
+                stencil: wgpu::StencilState::default(),
+            }),
+            */
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
@@ -370,7 +381,6 @@ impl LightingPass {
         let albedo_texture_view = context.get_texture_view(gbuffer_albedo_texture_handle).expect("Failed to get gbuffer albedo texture view");
         let depth_texture_view = context.get_texture_view(gbuffer_depth_texture_handle).expect("Failed to get gbuffer depth texture view");
 
-
         let gbuffer_textures_bind_group = gbuffer_textures_bind_group_layout.create_bind_group(&context.device, &[
             wgpu::BindGroupEntry {
                 binding: 0,
@@ -386,13 +396,15 @@ impl LightingPass {
             },
         ]);
         
+        let camera_buffer = context.get_buffer(camera_buffer_handle)
+            .expect("Failed to get camera buffer in lighting pass");
+
         let camera_bind_group = camera_bind_group_layout.create_bind_group(&context.device, &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: context.camera_buffer.as_entire_binding()
+                resource: camera_buffer.as_entire_binding()
             }
         ]);
-
 
         Self {
             name: "lighting_pass",
@@ -407,6 +419,7 @@ impl LightingPass {
             gbuffer_normal_texture_handle,
             gbuffer_albedo_texture_handle,
             gbuffer_depth_texture_handle,
+            camera_buffer_handle,
         }
     }
 
@@ -454,8 +467,8 @@ impl RenderPassNode for LightingPass {
             }
         };
 
-//        let depth_texture_view = context.get_texture_view(self.gbuffer_depth_texture_handle)
-//            .expect("Failed to get depth texture view in lighting pass");
+        let depth_texture_view = context.get_texture_view(self.gbuffer_depth_texture_handle)
+            .expect("Failed to get depth texture view in lighting pass");
         
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some(format!("{}_render_pass", self.name).as_str()),
@@ -477,14 +490,16 @@ impl RenderPassNode for LightingPass {
                 }),
             ],
             depth_stencil_attachment: None,
-//            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-//                view: depth_texture_view,
-//                depth_ops: Some(wgpu::Operations {
-//                    load: wgpu::LoadOp::Load,
-//                    store: wgpu::StoreOp::Store,
-//                }),
-//                stencil_ops: None,
-//            }),
+            /*
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: depth_texture_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            */
             occlusion_query_set: None,
             timestamp_writes: None,
             multiview_mask: None,
@@ -516,12 +531,14 @@ pub struct DebugGridPass {
 
     depth_texture_handle: TextureHandle,
     view: Option<wgpu::TextureView>,
+    camera_buffer_handle: BufferHandle,
 }
 
 impl DebugGridPass {
     pub fn new(
         context: &mut Context,
         depth_texture_handle: TextureHandle,
+        camera_buffer_handle: BufferHandle,
     ) -> Self {
         let camera_bind_group_layout = BindGroupLayoutBuilder::new(&context.device, Some("lighting_camera"))
             .add_uniform(wgpu::ShaderStages::VERTEX)
@@ -587,10 +604,12 @@ impl DebugGridPass {
             cache: None
         });
         
+        let camera_buffer = context.get_buffer(camera_buffer_handle)
+            .expect("Failed to get camera buffer when creating grid pass");
         let camera_bind_group = camera_bind_group_layout.create_bind_group(&context.device, &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: context.camera_buffer.as_entire_binding()
+                resource: camera_buffer.as_entire_binding()
             }
         ]);
 
@@ -600,6 +619,7 @@ impl DebugGridPass {
             pipeline,
             camera_bind_group,
             depth_texture_handle,
+            camera_buffer_handle,
             view: None
         }
     }
