@@ -1,4 +1,8 @@
-use std::{collections::HashMap};
+use std::{collections::HashMap, fs, usize};
+
+use image::DynamicImage;
+
+use crate::gfx::material::{Material, MaterialInfo};
 
 pub trait Vertex {
     fn layout() -> wgpu::VertexBufferLayout<'static>;
@@ -58,20 +62,271 @@ impl Mesh {
     }
 }
 
-pub struct InputGeometry<'a> {
-    pub name: &'a str,
+pub struct InputGeometry {
+    pub name: String,
     pub vertices: Vec<GBufferVertex>,
     pub indices: Option<Vec<u32>>,
+
+    // pub material: Material
 }
 
-impl<'a> InputGeometry<'a> {
-    // TODO: make this return different meshes from each model found in a .obj file
-    pub fn from_obj(file_path: &'a str) -> Self {
-        // let mut constructed_models: Vec<Self> = vec![];
-        
+pub struct ObjModel {
+    // The mesh data for an Obj model
+    pub mesh: InputGeometry,
+
+    // The material data for a mesh object
+    pub material: Option<MaterialInfo>,
+}
+
+impl ObjModel {
+    pub fn get_models(file_path: &str) -> Vec<Self> {
+        println!("------------------ GETTING MODELS ------------------");
+        let mut objs: Vec<Self> = Vec::new();
+        let parent = std::path::Path::new(file_path).parent().expect("Failed to get parent directory of obj file");
+        println!("PARENT: {:?}", parent);
+
         let (models, materials) = tobj::load_obj(file_path, &tobj::LoadOptions {
             triangulate: true,
             single_index: false,
+            ..Default::default()
+        }).expect("Failed to read obj file");
+
+        for (index, model) in models.iter().enumerate() {
+            println!("Model {}: {}", index, model.name);
+            let material = match &model.mesh.material_id {
+                Some(id) => {
+                    match &materials {
+                        Err(_e) => None,
+                        Ok(materials) => {
+                            let processed_material = Self::get_material_info(&materials[*id], &std::path::PathBuf::from(parent));
+                            Some(processed_material)
+                        }
+                    }
+                },
+                None => None
+            };
+            let mesh: InputGeometry = model.into();
+
+            objs.push(Self {
+                material,
+                mesh
+            });
+        }
+
+        println!("------------------  READ  MODELS  ------------------");
+
+        objs
+    }
+
+    fn load_material_texture(file_path: &std::path::PathBuf) -> Result<DynamicImage, Box<dyn std::error::Error>> {
+        let image_buffer = fs::read(file_path)
+            .expect(format!("Error reading texture file: {:?}", file_path).as_str());
+
+        let image = image::load_from_memory(image_buffer.as_slice())
+            .expect("Failed to load texture image from memory");
+        Ok(image)
+    }
+
+
+    fn get_material_info(material: &tobj::Material, directory: &std::path::PathBuf) -> MaterialInfo {
+        assert!(directory.is_dir(), "directory parameter must be a valid directory");
+
+        println!("Reading material file: {}", material.name);
+        print!("Diffuse texture: ");
+        let diffuse_texture = match &material.diffuse_texture {
+            Some(path) => {
+                println!("PATH: {:?}", path);
+                let diffuse_path = std::path::PathBuf::from(directory).join(util::get_cleaned_path(path));
+                match Self::load_material_texture(&diffuse_path) {
+                    Err(e) => {
+                        log::error!("Failed reading material file \"{:?}\": {}", util::get_cleaned_path(path), e);
+                        None
+                    },
+                    Ok(img) => {
+                        println!("Read successfully.");
+                        Some(img)
+                    }
+                }
+            },
+            None => {
+                println!("No diffuse texture for this material");
+                None
+            },
+        };
+
+        print!("Ambient texture: ");
+        let ambient_texture = match &material.ambient_texture {
+            Some(path) => {
+                let ambient_path = std::path::PathBuf::from(directory).join(util::get_cleaned_path(path));
+                println!("Diffuse path: {:?}", ambient_path);
+                match Self::load_material_texture(&ambient_path) {
+                    Err(e) => {
+                        log::error!("Failed reading material file \"{:?}\": {}", util::get_cleaned_path(path), e);
+                        None
+                    },
+                    Ok(img) => {
+                        println!("Read successfully.");
+                        Some(img)
+                    }
+                }
+            },
+            None => {
+                println!("No ambient texture for this material");
+                None
+            },
+        };
+
+        print!("Specular texture: ");
+        let specular_texture = match &material.specular_texture {
+            Some(path) => {
+                let specular_path = std::path::PathBuf::from(directory).join(util::get_cleaned_path(path));
+                match Self::load_material_texture(&specular_path) {
+                    Err(e) => {
+                        log::error!("Failed reading material file \"{:?}\": {}", util::get_cleaned_path(path), e);
+                        None
+                    },
+                    Ok(img) => {
+                        println!("Read successfully.");
+                        Some(img)
+                    }
+                }
+            },
+            None => {
+                println!("No specular texture for this material");
+                None
+            },
+        };
+
+        print!("Normal texture: ");
+        let normal_texture = match &material.normal_texture {
+            Some(path) => {
+                let normal_path = std::path::PathBuf::from(directory).join(util::get_cleaned_path(path));
+                match Self::load_material_texture(&normal_path) {
+                    Err(e) => {
+                        log::error!("Failed reading material file \"{:?}\": {}", util::get_cleaned_path(path), e);
+                        None
+                    },
+                    Ok(img) => {
+                        println!("Read successfully.");
+                        Some(img)
+                    }
+                }
+            },
+            None => {
+                println!("No normal texture for this material");
+                None
+            },
+        };
+
+        print!("Dissolve texture: ");
+        let dissolve_texture = match &material.dissolve_texture {
+            Some(path) => {
+                let dissolve_path = std::path::PathBuf::from(directory).join(util::get_cleaned_path(path));
+                match Self::load_material_texture(&dissolve_path) {
+                    Err(e) => {
+                        log::error!("Failed reading material file \"{:?}\": {}", util::get_cleaned_path(path), e);
+                        None
+                    },
+                    Ok(img) => {
+                        println!("Read successfully.");
+                        Some(img)
+                    }
+                }
+            },
+            None => {
+                println!("No dissolve texture for this material");
+                None
+            },
+        };
+
+        print!("Shininess texture: ");
+        let shininess_texture = match &material.shininess_texture {
+            Some(path) => {
+                let shininess_path = std::path::PathBuf::from(directory).join(util::get_cleaned_path(path));
+                match Self::load_material_texture(&shininess_path) {
+                    Err(e) => {
+                        println!("Error reading material texture file: {}", e);
+                        None
+                    },
+                    Ok(img) => {
+                        println!("Read successfully.");
+                        Some(img)
+                    }
+                }
+            },
+            None => {
+                println!("No shininess texture for this material");
+                None
+            },
+        };
+
+        println!("diffuse: {:?}", material.diffuse);
+        println!("ambient: {:?}", material.ambient);
+        println!("specular: {:?}", material.diffuse);
+        println!("dissolve: {:?}", material.dissolve);
+        println!("shininess: {:?}", material.shininess);
+        println!("illumination_model: {:?}", material.illumination_model);
+        println!("optical_density: {:?}", material.optical_density);
+
+        MaterialInfo {
+            diffuse_texture,
+            diffuse_color: material.diffuse,
+
+            ambient_texture,
+            ambient_color: material.ambient,
+
+            shininess_texture,
+            shininess_coef: material.shininess,
+
+            specular_texture,
+            specular_color: material.specular,
+
+            dissolve_texture,
+            dissolve_coef: material.dissolve,
+
+            normal_texture,
+
+            illumination_model: material.illumination_model,
+
+            optical_density: material.optical_density,
+        }
+    }
+}
+
+impl InputGeometry {
+    // TODO: make this return different meshes from each model found in a .obj file
+    pub fn from_obj_2(file_path: &str) -> Vec<Self> {
+        let mut constructed_models: Vec<Self> = Vec::new();
+
+        let (models, materials) = tobj::load_obj(file_path, &tobj::LoadOptions {
+            triangulate: true,
+            single_index: false,
+            ..Default::default()
+        }).expect("Failed to load obj file");
+        println!("Loading {} models", models.len());
+
+        match materials {
+            Err(e) => println!("{:?}", e),
+            Ok(materials) => {
+                for material in materials {
+                    println!("Found Material: {}", material.name);
+                    println!("{:?}", material);
+                }
+            }
+        };
+
+        for (idx, m) in models.iter().enumerate() {
+            println!("Reading model {}: {}", idx, m.name);
+            constructed_models.push(m.into());
+        }
+
+        constructed_models
+    }
+
+    pub fn from_obj(file_path: & str) -> Self {
+        let (models, materials) = tobj::load_obj(file_path, &tobj::LoadOptions {
+            triangulate: true,
+            single_index: true,
             ..Default::default()
         }).expect("Failed to load obj file");
         println!("Loading {} models", models.len());
@@ -137,28 +392,90 @@ impl<'a> InputGeometry<'a> {
             }
         }
         Self {
-            name: file_path,
+            name: String::from(file_path),
             vertices,
             indices: Some(indices),
         }
-
-//        constructed_models.push(Self {
-//            name: file_path,
-//            vertices,
-//            indices: Some(indices),
-//        });
-//
-//        constructed_models
     }
 }
 
-fn get_normal_for_point(a: [f32; 3], b: [f32; 3], c: [f32; 3]) -> [f32; 3] {
-    let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-    let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+impl From<&tobj::Model> for InputGeometry {
+    fn from(value: &tobj::Model) -> Self {
+        let mesh = &value.mesh;
+        let name = value.name.clone();
+        let has_texel_coords = !mesh.texcoord_indices.is_empty();
+        let has_normals = !mesh.normal_indices.is_empty();
+        
+        println!("Model: {}", value.name);
+        println!("  indices: {}", mesh.indices.len());
+        println!("  texcoord_indices: {}", mesh.texcoord_indices.len());
+        println!("  normal_indices: {}", mesh.normal_indices.len());
+        println!("  positions: {}", mesh.positions.len() / 3);
+        println!("  texcoords: {}", mesh.texcoords.len() / 2);
+        println!("  normals: {}", mesh.normals.len() / 3);
 
-    [
-        u[1] * v[2] - u[2] * v[1], 
-        u[2] * v[0] - u[0] * v[2], 
-        u[0] * v[1] - u[1] * v[0], 
-    ]
+        let mut vertices: Vec<GBufferVertex> = Vec::new();
+        let mut indices: Vec<u32> = Vec::new();
+            
+        let mut index_map: HashMap<(u32, u32, u32), u32> = HashMap::new();
+
+        for i in 0..mesh.indices.len() { 
+            let position_index = mesh.indices[i];
+            let texel_index = if has_texel_coords { mesh.texcoord_indices[i] } else { 0 };
+            let normal_index = if has_normals { mesh.normal_indices[i] } else { 0 };
+            
+            let index_key = (position_index, texel_index, normal_index);
+            if let Some(&existing_index) = index_map.get(&index_key) {
+                indices.push(existing_index);
+            } else {
+                let p = (position_index * 3) as usize;
+                let position = [
+                    mesh.positions[p],
+                    mesh.positions[p + 1],
+                    mesh.positions[p + 2],
+                ];
+
+                let texel = if has_texel_coords {
+                    let t = (texel_index * 2) as usize;
+                    [mesh.texcoords[t], 1.0 - mesh.texcoords[t + 1]]
+                } else {
+                    [0.0, 0.0]
+                };
+
+                let normal = if has_normals {
+                    let n = (normal_index * 3) as usize;
+                    [
+                        mesh.normals[n], 
+                        mesh.normals[n + 1], 
+                        mesh.normals[n + 2], 
+                    ]
+                } else {
+                    [0.0, 0.0, 0.0]
+                };
+
+                let new_index = vertices.len() as u32;
+                vertices.push(GBufferVertex { position, normal, texel });
+                index_map.insert(index_key, new_index);
+                indices.push(new_index);
+            }
+        }
+
+        Self {
+            name,
+            vertices,
+            indices: Some(indices)
+        }
+    }
+}
+
+mod util {
+    pub fn get_cleaned_path(path: &str) -> std::path::PathBuf {
+        let first = path.replace('\\', "/");
+        let mut path = std::path::PathBuf::new();
+        for part in first.split('/') {
+            path = path.join(part);
+        }
+
+        path
+    }
 }

@@ -62,6 +62,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let fade_end = 100.0;
     let fade = smoothstep(fade_start, fade_end, dist);
 
-    let background_color = vec3f(0.0, 0.0, 0.03);
+    let background_color = vec3f(0.01, 0.01, 0.02);
     return vec4<f32>(final_color + background_color, 1.0 - fade);
 }

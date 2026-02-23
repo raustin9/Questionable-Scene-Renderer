@@ -1,4 +1,4 @@
-use crate::geometry::{InputGeometry, Mesh};
+use crate::geometry::{InputGeometry, Mesh, ObjModel};
 
 pub struct Scene<'a> {
     pub nodes: Vec<Node<'a>>,
@@ -6,6 +6,7 @@ pub struct Scene<'a> {
 
 impl<'a> Scene<'a> {
     pub fn new() -> Self {
+        env_logger::init();
         Self {
             nodes: vec![],
         }
@@ -33,7 +34,9 @@ pub struct Node<'a> {
     /// The input geometry set for this node in the scene.
     /// This will later be turned into a `gfx::geometry::Mesh`
     /// for use in the renderer.
-    pub geometry: Option<InputGeometry<'a>>,
+    pub model: Option<InputGeometry>,
+
+    pub objs: Option<Vec<ObjModel>>,
 
     /// The diffuse_texture of this scene node.
     pub material_path: &'a str,
@@ -47,15 +50,21 @@ pub struct Node<'a> {
 impl<'a> Node<'a> {
     pub fn new() -> Self {
         Self {
-            geometry: None,
+            model: None,
+            objs: None,
             material_path: "resources/materials/default_material.png",
-            transforms: vec![]
+            transforms: vec![],
         }
     }
 
     /// Set the geometry of the node in the scene
     pub fn with_geometry(&mut self, file_path: &'a str) -> &mut Self {
-        self.geometry = Some(InputGeometry::from_obj(file_path));
+        self.model = Some(InputGeometry::from_obj(file_path));
+        self
+    }
+
+    pub fn with_model(&mut self, file_path: &'a str) -> &mut Self {
+        self.objs = Some(ObjModel::get_models(file_path));
         self
     }
 

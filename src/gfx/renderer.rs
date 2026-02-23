@@ -142,68 +142,148 @@ impl<'a> RenderData {
         // TODO: find camera here
 
         for node in &scene.nodes {
-            let mesh_handle = match &node.geometry {
-                Some(geometry) => {
-                    context.create_mesh(
-                        geometry.name, 
-                        geometry.vertices.len() as u32, 
-                        bytemuck::cast_slice(geometry.vertices.as_slice()), 
-                        match &geometry.indices {
-                            None => None,
-                            Some(indices) => Some(indices.as_slice())
-                        }
-                    )
-                },
-                None => continue,
-            };
+            // Get the opaque renderables from the Node.model field
+//            match &node.model {
+//                Some(model) => {
+//                    let mesh_handle = context.create_mesh(
+//                        model.name.as_str(), 
+//                        model.vertices.len() as u32, 
+//                        bytemuck::cast_slice(model.vertices.as_slice()), 
+//                        match &model.indices {
+//                            None => None,
+//                            Some(indices) => Some(indices.as_slice())
+//                        }
+//                    );
+//
+//                    // Form the model matrix
+//                    let mut model_matrix = cgmath::Matrix4::<f32>::identity();
+//                    for transform in &node.transforms {
+//                        match transform {
+//                            Transform::Scale(scale) => {
+//                                let scale_matrix = cgmath::Matrix4::from_nonuniform_scale(scale[0], scale[1], scale[2]);
+//                                model_matrix = model_matrix * scale_matrix;
+//                            },
+//                            Transform::Rotate(axis, unit) => {
+//                                let _rotation = cgmath::Matrix4::from_axis_angle(
+//                                    cgmath::Vector3 { x: axis[0], y: axis[1], z: axis[2] }, 
+//                                    match unit {
+//                                        RotationUnit::Rad(scalar) => cgmath::Rad(scalar.clone()),
+//                                        RotationUnit::Deg(scalar) => cgmath::Rad(scalar * 0.0174533),
+//                                    }
+//                                );
+//                            },
+//                            Transform::Translate(translate) => {
+//                                let translation_matrix = cgmath::Matrix4::<f32>::from_translation(cgmath::Vector3 { x: translate[0], y: translate[1], z: translate[2] });
+//                                model_matrix = model_matrix * translation_matrix;
+//                            }
+//                        }
+//                    }
+//
+//                    let inverse_model = model_matrix.invert().expect("Failed to invert model matrix");
+//                    let inverse_transpose_model = inverse_model.transpose();
+//
+//                    let uniform_data = RenderableGeometryUniform {
+//                        model_matrix: model_matrix.into(),
+//                        normal_model_matrix: inverse_transpose_model.into()
+//                    };
+//
+//                    let uniform = context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+//                        label: Some("geometry_uniform"),
+//                        contents: bytemuck::cast_slice(&[uniform_data]),
+//                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
+//                    });
+//
+//                    let material = Material::from_path(node.material_path, context);
+//
+//                    render_data.opaque_renderables.push(Renderable { 
+//                        mesh: Some(mesh_handle), 
+//                        model_matrix, 
+//                        normal_model_matrix: inverse_transpose_model,
+//                        uniform,
+//                        material,
+//                    });
+//                },
+//                None => {},
+//            }
 
-            // Form the model matrix
-            let mut model_matrix = cgmath::Matrix4::<f32>::identity();
-            for transform in &node.transforms {
-                match transform {
-                    Transform::Scale(scale) => {
-                        let scale_matrix = cgmath::Matrix4::from_nonuniform_scale(scale[0], scale[1], scale[2]);
-                        model_matrix = model_matrix * scale_matrix;
-                    },
-                    Transform::Rotate(axis, unit) => {
-                        let _rotation = cgmath::Matrix4::from_axis_angle(
-                            cgmath::Vector3 { x: axis[0], y: axis[1], z: axis[2] }, 
-                            match unit {
-                                RotationUnit::Rad(scalar) => cgmath::Rad(scalar.clone()),
-                                RotationUnit::Deg(scalar) => cgmath::Rad(scalar * 0.0174533),
+            // Get the models from the Node.objs
+            match &node.objs {
+                Some(models) => {
+                    for model in models {
+                        let mesh_handle = context.create_mesh(
+                            model.mesh.name.as_str(), 
+                            model.mesh.vertices.len() as u32, 
+                            bytemuck::cast_slice(model.mesh.vertices.as_slice()), 
+                            match &model.mesh.indices {
+                                None => None,
+                                Some(indices) => Some(indices.as_slice())
                             }
                         );
-                    },
-                    Transform::Translate(translate) => {
-                        let translation_matrix = cgmath::Matrix4::<f32>::from_translation(cgmath::Vector3 { x: translate[0], y: translate[1], z: translate[2] });
-                        model_matrix = model_matrix * translation_matrix;
+
+                        // Form the model matrix
+                        let mut model_matrix = cgmath::Matrix4::<f32>::identity();
+                        for transform in &node.transforms {
+                            match transform {
+                                Transform::Scale(scale) => {
+                                    let scale_matrix = cgmath::Matrix4::from_nonuniform_scale(scale[0], scale[1], scale[2]);
+                                    model_matrix = model_matrix * scale_matrix;
+                                },
+                                Transform::Rotate(axis, unit) => {
+                                    let _rotation = cgmath::Matrix4::from_axis_angle(
+                                        cgmath::Vector3 { x: axis[0], y: axis[1], z: axis[2] }, 
+                                        match unit {
+                                            RotationUnit::Rad(scalar) => cgmath::Rad(scalar.clone()),
+                                            RotationUnit::Deg(scalar) => cgmath::Rad(scalar * 0.0174533),
+                                        }
+                                    );
+                                },
+                                Transform::Translate(translate) => {
+                                    let translation_matrix = cgmath::Matrix4::<f32>::from_translation(cgmath::Vector3 { x: translate[0], y: translate[1], z: translate[2] });
+                                    model_matrix = model_matrix * translation_matrix;
+                                }
+                            }
+                        }
+
+                        let inverse_model = model_matrix.invert().expect("Failed to invert model matrix");
+                        let inverse_transpose_model = inverse_model.transpose();
+
+                        let uniform_data = RenderableGeometryUniform {
+                            model_matrix: model_matrix.into(),
+                            normal_model_matrix: inverse_transpose_model.into()
+                        };
+
+                        let uniform = context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("geometry_uniform"),
+                            contents: bytemuck::cast_slice(&[uniform_data]),
+                            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
+                        });
+
+                        let default_material = Material::from_path(&node.material_path, context);
+                        let material = match &model.material {
+                            Some(material) => {
+                                match &material.diffuse_texture {
+                                    Some(diffuse_data) => {
+                                        Material::from_image_data(&diffuse_data, context)
+                                    },
+                                    None => default_material,
+                                }
+                            },
+                            None => default_material,
+                        };
+
+                        // let material = Material::from_path(node.material_path, context);
+
+                        render_data.opaque_renderables.push(Renderable { 
+                            mesh: Some(mesh_handle), 
+                            model_matrix, 
+                            normal_model_matrix: inverse_transpose_model,
+                            uniform,
+                            material,
+                        });
                     }
-                }
+                },
+                None => {},
             }
-
-            let inverse_model = model_matrix.invert().expect("Failed to invert model matrix");
-            let inverse_transpose_model = inverse_model.transpose();
-
-            let uniform_data = RenderableGeometryUniform {
-                model_matrix: model_matrix.into(),
-                normal_model_matrix: inverse_transpose_model.into()
-            };
-            
-            let uniform = context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("geometry_uniform"),
-                contents: bytemuck::cast_slice(&[uniform_data]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
-            });
-
-            let material = Material::from_path(node.material_path, context);
-
-            render_data.opaque_renderables.push(Renderable { 
-                mesh: Some(mesh_handle), 
-                model_matrix, 
-                normal_model_matrix: inverse_transpose_model,
-                uniform,
-                material,
-            });
         }
 
         render_data
