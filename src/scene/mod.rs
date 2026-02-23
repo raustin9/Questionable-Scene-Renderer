@@ -47,6 +47,30 @@ pub struct Node<'a> {
     pub transforms: Vec<Transform>,
 }
 
+pub type MaterialDesc = tobj::Material;
+
+pub enum ModelSpec<'a> {
+    ObjFile {
+        /// File path to read object from
+        path: &'a str,
+
+        /// Optional directory path to lookup textures in.
+        /// If `None` then the directory used is the same
+        /// one as the `path` parent directory.
+        texture_path: Option<std::path::PathBuf>,
+    },
+    Custom {
+        /// The name of the model
+        name: &'a str,
+
+        /// File path to the geometry to read
+        geometry_path: &'a str,
+
+        /// File path to the texture
+        material_info: MaterialDesc,
+    }
+}
+
 impl<'a> Node<'a> {
     pub fn new() -> Self {
         Self {
@@ -63,8 +87,21 @@ impl<'a> Node<'a> {
         self
     }
 
-    pub fn with_model(&mut self, file_path: &'a str) -> &mut Self {
-        self.objs = Some(ObjModel::get_models(file_path));
+//    pub fn with_model(&mut self, file_path: &'a str) -> &mut Self {
+//        self.objs = Some(ObjModel::get_models(file_path));
+//        self
+//    }
+
+    pub fn with_model(&mut self, spec: ModelSpec) -> &mut Self {
+        match spec {
+            ModelSpec::ObjFile { path, texture_path } => {
+                self.objs = Some(ObjModel::get_models(path, texture_path));
+            },
+            ModelSpec::Custom { name, geometry_path, material_info } => {
+                self.objs = Some(vec![ObjModel::from_custom(name, geometry_path, &material_info)]);
+            },
+        };
+        
         self
     }
 

@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs, usize};
 
 use image::DynamicImage;
 
-use crate::gfx::material::{Material, MaterialInfo};
+use crate::{ModelSpec, gfx::material::{Material, MaterialInfo}};
 
 pub trait Vertex {
     fn layout() -> wgpu::VertexBufferLayout<'static>;
@@ -79,11 +79,18 @@ pub struct ObjModel {
 }
 
 impl ObjModel {
-    pub fn get_models(file_path: &str) -> Vec<Self> {
+    pub fn get_models(file_path: &str, texture_directory: Option<std::path::PathBuf>) -> Vec<Self> {
         println!("------------------ GETTING MODELS ------------------");
         let mut objs: Vec<Self> = Vec::new();
-        let parent = std::path::Path::new(file_path).parent().expect("Failed to get parent directory of obj file");
-        println!("PARENT: {:?}", parent);
+        let parent = match texture_directory {
+            Some(dir) => {
+                assert!(dir.is_dir(), "texture_directory must be a valid directory");
+                dir
+            },
+            None => std::path::PathBuf::from(std::path::Path::new(file_path).parent()
+                .expect("Failed to get parent directory of obj file")),
+        };
+        println!("Texture Lookup Dir: {:?}", parent);
 
         let (models, materials) = tobj::load_obj(file_path, &tobj::LoadOptions {
             triangulate: true,
@@ -98,7 +105,7 @@ impl ObjModel {
                     match &materials {
                         Err(_e) => None,
                         Ok(materials) => {
-                            let processed_material = Self::get_material_info(&materials[*id], &std::path::PathBuf::from(parent));
+                            let processed_material = Self::get_material_info(&materials[*id], &parent);
                             Some(processed_material)
                         }
                     }
@@ -116,6 +123,79 @@ impl ObjModel {
         println!("------------------  READ  MODELS  ------------------");
 
         objs
+    }
+
+    pub fn from_custom(name: &str, geometry_path: &str, material_info: &tobj::Material) -> Self {
+        let (models, _materials) = tobj::load_obj(geometry_path, &tobj::LoadOptions {
+            triangulate: true,
+            single_index: false,
+            ..Default::default()
+        }).expect("Failed to load obj file");
+        println!("Loading {} models", models.len());
+
+        let mut vertices: Vec<GBufferVertex> = Vec::new();
+        let mut indices: Vec<u32> = Vec::new();
+        let mut index_map: HashMap<(u32, u32, u32), u32> = HashMap::new();
+
+        for (_, m) in models.iter().enumerate() {
+            let mesh = &m.mesh;
+
+            println!("Model name: {}", m.name);
+
+            let has_tc = !mesh.texcoord_indices.is_empty();
+            let has_n = !mesh.normal_indices.is_empty();
+
+            for i in 0..mesh.indices.len() {
+                let pos_idx = mesh.indices[i];
+                let texel_idx = if has_tc { mesh.texcoord_indices[i] } else { 0 };
+                let normal_idx = if has_n { mesh.normal_indices[i] } else { 0 };
+
+                let key = (pos_idx, texel_idx, normal_idx);
+
+                if let Some(&existing) = index_map.get(&key) {
+                    indices.push(existing);
+                } else {
+                    let p = (pos_idx * 3) as usize;
+                    let position = [
+                        mesh.positions[p],
+                        mesh.positions[p + 1],
+                        mesh.positions[p + 2],
+                    ];
+
+                    let tex_coord = if has_tc {
+                        let t = (texel_idx * 2) as usize;
+                        [mesh.texcoords[t], mesh.texcoords[t + 1]]
+                    } else {
+                        [0.0, 0.0]
+                    };
+
+                    let normal = if has_n {
+                        let n = (normal_idx * 3) as usize;
+                        [mesh.normals[n], mesh.normals[n+1], mesh.normals[n+2]]
+                    } else {
+                        [0.0, 0.0, 0.0]
+                    };
+
+                    let new_idx = vertices.len() as u32;
+                    vertices.push(GBufferVertex { position, normal, texel: tex_coord });
+                    index_map.insert(key, new_idx);
+                    indices.push(new_idx);
+                }
+            }
+        }
+
+        let mesh = InputGeometry {
+            name: String::from(name),
+            vertices,
+            indices: Some(indices),
+        };
+
+        let material = Self::get_material_info(material_info, &std::env::current_dir().expect("Could not get working dir"));
+
+        Self {
+            mesh,
+            material: Some(material)
+        }
     }
 
     fn load_material_texture(file_path: &std::path::PathBuf) -> Result<DynamicImage, Box<dyn std::error::Error>> {
@@ -294,35 +374,6 @@ impl ObjModel {
 }
 
 impl InputGeometry {
-    // TODO: make this return different meshes from each model found in a .obj file
-    pub fn from_obj_2(file_path: &str) -> Vec<Self> {
-        let mut constructed_models: Vec<Self> = Vec::new();
-
-        let (models, materials) = tobj::load_obj(file_path, &tobj::LoadOptions {
-            triangulate: true,
-            single_index: false,
-            ..Default::default()
-        }).expect("Failed to load obj file");
-        println!("Loading {} models", models.len());
-
-        match materials {
-            Err(e) => println!("{:?}", e),
-            Ok(materials) => {
-                for material in materials {
-                    println!("Found Material: {}", material.name);
-                    println!("{:?}", material);
-                }
-            }
-        };
-
-        for (idx, m) in models.iter().enumerate() {
-            println!("Reading model {}: {}", idx, m.name);
-            constructed_models.push(m.into());
-        }
-
-        constructed_models
-    }
-
     pub fn from_obj(file_path: & str) -> Self {
         let (models, materials) = tobj::load_obj(file_path, &tobj::LoadOptions {
             triangulate: true,
