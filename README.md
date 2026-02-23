@@ -7,36 +7,35 @@ fn main() {
     let mut scene = qsr::Scene::new();
     
     scene.create_node()
-        .with_geometry("resources/meshes/tree.obj")
-        .with_texture("resources/materials/default_grid.png")
-        .with_transform(qsr::Transform::Translate([0.0, -6.0, 0.0]))
-        .with_transform(qsr::Transform::Scale([1.0, 1.0, 1.0]));
+        .with_model("resources/aircraft/aircraft.obj")
+        .with_transform(qsr::Transform::Scale([3.5, 3.5, 3.5]));
 
     let _ = qsr::driver::Driver::run(&mut scene);
 }
 ```
 This will pull up a window with the scene rendered.
-![example 1](https://private-user-images.githubusercontent.com/71673490/553033778-9b6dae31-f493-4813-a208-e445f4ec8b5b.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NzE2OTUyODYsIm5iZiI6MTc3MTY5NDk4NiwicGF0aCI6Ii83MTY3MzQ5MC81NTMwMzM3NzgtOWI2ZGFlMzEtZjQ5My00ODEzLWEyMDgtZTQ0NWY0ZWM4YjViLnBuZz9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNjAyMjElMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjYwMjIxVDE3Mjk0NlomWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPTY1YzBhNGMxNmJiMmFmNDRmZjcyMjMwNzQxNTM1ZmZhMTQ4OTk2YjM3MjQ4N2IxZTQwYjRjYjZhZmJjYzdiMTkmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0In0.IY2I7j64hbdq2-IAbR1LYX-GvJ1ygjcilcIWy5fGiAw)
+![example 1](https://private-user-images.githubusercontent.com/71673490/553661037-8aa77057-c6d9-4b27-b20a-25230eda2024.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NzE4NzQwNzUsIm5iZiI6MTc3MTg3Mzc3NSwicGF0aCI6Ii83MTY3MzQ5MC81NTM2NjEwMzctOGFhNzcwNTctYzZkOS00YjI3LWIyMGEtMjUyMzBlZGEyMDI0LnBuZz9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNjAyMjMlMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjYwMjIzVDE5MDkzNVomWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPTVlYjk2NGVjNmU2MzA0ZDJhMDY1NjM5MTBjNGQyNTdlZGRlZWExODZhZTYxYjRmNTU2ODU4NzliZTg4YWM0YTgmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0In0.z-KqC3rvmSU7AemUJCnzghLk-jgnQS7EG736owGIeVo)
 
-You can expand a scene with more nodes as well:
-```rust
-fn main() {
-    let mut scene = qsr::Scene::new();
-    
-    scene.create_node()
-        .with_geometry("resources/meshes/agera.obj")
-        .with_texture("resources/materials/default_grid.png")
-        .with_transform(qsr::Transform::Translate([5.0, 0.0, 0.0]))
-        .with_transform(qsr::Transform::Scale([0.5, 0.5, 0.5]));
-    
-    scene.create_node()
-        .with_geometry("resources/meshes/tower.obj")
-        .with_texture("resources/materials/wood.jpg")
-        .with_transform(qsr::Transform::Translate([-5.0, 0.0, 10.0]))
-        .with_transform(qsr::Transform::Scale([1.0, 1.0, 1.0]));
+This `.obj` file is rendered per-model and attaches the correct textures to each model based on what the file specifies.
 
-    let _ = qsr::driver::Driver::run(&mut scene);
-}
-```
-Which results in this:
-![example 2](https://private-user-images.githubusercontent.com/71673490/553033793-3299ff36-7a05-4b28-89a9-08e11591204a.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NzE2OTUyODYsIm5iZiI6MTc3MTY5NDk4NiwicGF0aCI6Ii83MTY3MzQ5MC81NTMwMzM3OTMtMzI5OWZmMzYtN2EwNS00YjI4LTg5YTktMDhlMTE1OTEyMDRhLnBuZz9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNjAyMjElMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjYwMjIxVDE3Mjk0NlomWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPTAwMGE1YWQ4NGE2ODgzNWVhZGY1NDNiYjZjZjQ5ZGEwZGQ4NGVlNjM5MzhhM2ViOGJhMzEwNmFiZTBkN2FlNGQmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0In0.tSiGBfuGYsuq9WftUwD0vD7sSYnM2nfTCD5z_yD7ZX0)
+## Renderer Design
+### Render Graph and Deferred Rendering
+This renderer is a personal experiment to play around with different architectures and rendering techniques.
+
+Right now, this is using a deferred rendering architecture where each renderable first writes all the geometry data (albedo, depth, normals) to gbuffers, and later render passes load those textures to perform their operations.
+
+### Material and Texture handling
+The renderer is based around a central `qsr::gfx::Context` object which interfaces the renderer with GPU operations.
+
+Textures are created through the context, and are managed by a `TextureRegistry` that stores the textures and distributes handles to them.
+By storing, the TextureRegistry keeps the `wgpu::Texture` and `wgpu::TextureView` objects. 
+
+When a texture is created that is the same as a previous one, it is deduplicated to prevent excessive resource use, and a handle to the 
+existing texture is given.
+
+### Current and Future Work
+This is still in very early development.
+The goal is to put more and more builtin renderpasses to the render graph. Here are the immediate ones:
+* Normal Mapping [STATUS: partial]
+* Phong lighting [STATUS: partial]
+* Bloom [STATUS: not started]
