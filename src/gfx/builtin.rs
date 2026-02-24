@@ -479,12 +479,6 @@ impl RenderPassNode for LightingPass {
                     depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
-//                        load: wgpu::LoadOp::Clear(wgpu::Color {
-//                            r: 0.0,
-//                            g: 0.0,
-//                            b: 0.0,
-//                            a: 1.0
-//                        }),
                         store: wgpu::StoreOp::Store
                     },
                 }),
@@ -722,6 +716,9 @@ impl AlphaRenderPass {
             .label("alpha_shader")
             .add_vertex_layout(GBufferVertex::layout())
             .build();
+
+        let depth_texture = context.get_texture(depth_texture_handle)
+            .expect("Failed to get depth texture in alpha pass");
         
         let scene_bind_group_layout = BindGroupLayoutBuilder::new(&context.device, Some("scene"))
             .add_uniform(wgpu::ShaderStages::VERTEX)
@@ -768,7 +765,13 @@ impl AlphaRenderPass {
                 ],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: depth_texture.format(),
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
@@ -850,7 +853,16 @@ impl RenderPassNode for AlphaRenderPass {
                     },
                 }),
             ],
-            depth_stencil_attachment: None,
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &depth_texture_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+
+
+            }),
             occlusion_query_set: None,
             timestamp_writes: None,
             multiview_mask: None,

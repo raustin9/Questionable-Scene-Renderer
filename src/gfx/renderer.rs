@@ -69,7 +69,7 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
             },
             None
         );
-
+        
         let write_gbuffers_pass = builtin::WriteGBuffersPass::new(
             context, 
             gbuffer_normal_texture_handle,
