@@ -71,23 +71,6 @@ impl<'a> Context {
             desired_maximum_frame_latency: 2,
         };
 
-//        let camera = Camera {
-//            eye: (0.0, 16.0, 32.0).into(),
-//            target: (0.0, 0.0, 0.0).into(),
-//            up: cgmath::Vector3::unit_y(),
-//            aspect: surface_config.width as f32 / surface_config.height as f32,
-//            fovy: 45.0,
-//            znear: 0.1,
-//            zfar: 1000.0,
-//        };
-//        let mut camera_uniform = CameraUniform::new();
-//        camera_uniform.update_projections(&camera);
-//        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-//            label: Some("camera_uniform_buffer"),
-//            contents: bytemuck::cast_slice(&[camera_uniform]),
-//            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
-//        });.
-
         let texture_registry = TextureRegistry::new(window_size.width, window_size.height);
         let buffer_registry = BufferRegistry::new();
 

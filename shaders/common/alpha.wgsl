@@ -31,27 +31,18 @@ fn vs_main(
     return output;
 }
 
-// Bind group for texture
 @group(2) @binding(0) var t_diffuse: texture_2d<f32>;
 @group(2) @binding(1) var s_diffuse: sampler;
-
-// FRAG
-struct GBufferOutput {
-  @location(0) normal : vec4f,
-
-  // Textures: diffuse color, specular color, smoothness, emissive etc. could go here
-  @location(1) albedo : vec4f,
-}
+@group(2) @binding(2) var<uniform> dissolve: f32;
 
 @fragment
 fn fs_main(
-  @location(0) fragNormal: vec3f,
-  @location(1) fragUV : vec2f,
-) -> GBufferOutput {
-  var output : GBufferOutput;
+    @location(0) fragNormal: vec3f,
+    @location(1) fragUV: vec2f,
+) -> @location(0) vec4f {
+    var result: vec4f;
 
-  output.normal = vec4(normalize(fragNormal), 1.0);
-  output.albedo = textureSample(t_diffuse, s_diffuse, fragUV);
+    result = textureSample(t_diffuse, s_diffuse, fragUV);
 
-  return output;
+    return vec4(result.xyz, dissolve);
 }

@@ -1,7 +1,7 @@
 
 use std::fs;
 
-use crate::gfx::{Context, resource::{self, SamplerRepeat, TextureHandle}};
+use crate::gfx::{Context, resource::{self, BufferHandle, SamplerRepeat, TextureHandle}};
 
 #[derive(Debug)]
 pub struct MaterialInfo {
@@ -28,6 +28,8 @@ pub struct Material {
     pub diffuse_texture_handle: TextureHandle,
 
     pub diffuse_color: [f32; 3],
+
+    pub dissolve: Option<BufferHandle>,
 }
 
 impl Material {
@@ -66,11 +68,12 @@ impl Material {
 
         Self { 
             diffuse_texture_handle: texture_handle,
-            diffuse_color: [1.0, 1.0, 1.0]
+            diffuse_color: [1.0, 1.0, 1.0],
+            dissolve: None
         }
     }
 
-    pub fn from_image_data(image: &image::DynamicImage, context: &mut Context) -> Self {
+    pub fn get_handle(image: &image::DynamicImage, context: &mut Context) -> TextureHandle {
         use image::GenericImageView;
         let rgba = image.to_rgba8();
         let dimensions = image.dimensions();
@@ -95,9 +98,36 @@ impl Material {
 
         context.write_texture(texture_handle, &rgba, texture_size, 4);
 
-        Self { 
-            diffuse_texture_handle: texture_handle,
-            diffuse_color: [1.0, 1.0, 1.0]
+        texture_handle
+    }
+
+    pub fn from_info(info: &MaterialInfo, context: &mut Context) -> Self {
+        let diffuse_texture_handle = match &info.diffuse_texture {
+            Some(data) => Self::get_handle(&data, context),
+            None => panic!("Cannot create a material with no diffuse texture yet"),
+        };
+        let diffuse_color = match info.diffuse_color {
+            Some(color) => color,
+            None => [1.0, 1.0, 1.0]
+        };
+
+        let dissolve = match info.dissolve_coef {
+            Some(coef) => {
+                match coef {
+                    1.0 => None,
+                    _ => Some(context.create_buffer(
+                        wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, 
+                        bytemuck::cast_slice(&[coef])
+                    ))
+                }
+            },
+            None => None,
+        };
+
+        Self {
+            diffuse_texture_handle,
+            diffuse_color,
+            dissolve,
         }
     }
 }

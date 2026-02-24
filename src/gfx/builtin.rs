@@ -531,7 +531,9 @@ pub struct DebugGridPass {
 
     depth_texture_handle: TextureHandle,
     view: Option<wgpu::TextureView>,
-    camera_buffer_handle: BufferHandle,
+
+    #[allow(unused)]
+    camera_buffer_handle: BufferHandle, // This is unused for now but might useful later
 }
 
 impl DebugGridPass {
@@ -686,5 +688,232 @@ impl RenderPassNode for DebugGridPass {
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
         render_pass.draw(0..6, 0..1); // 6 vertices since this pass in only drawing a quad to the
+    }
+}
+
+pub struct AlphaRenderPass {
+    name: &'static str,
+    kind: RenderPassKind,
+
+    pipeline: wgpu::RenderPipeline,
+    camera_bind_group: wgpu::BindGroup,
+
+    geometry_bind_group_layout: BindGroupLayout,
+    material_bind_group_layout: BindGroupLayout,
+
+    depth_texture_handle: TextureHandle,
+    
+
+    view: Option<wgpu::TextureView>,
+
+    renderables: Vec<Renderable>,
+}
+
+impl AlphaRenderPass {
+    pub fn new(
+        context: &Context,
+        camera_buffer_handle: BufferHandle,
+        depth_texture_handle: TextureHandle,
+        renderables: Vec<Renderable>,
+    ) -> Self {
+        let shader = ShaderBuilder::new(&context.device, include_str!("../../shaders/common/alpha.wgsl").into())
+            .vert_entry("vs_main")
+            .frag_entry("fs_main")
+            .label("alpha_shader")
+            .add_vertex_layout(GBufferVertex::layout())
+            .build();
+        
+        let scene_bind_group_layout = BindGroupLayoutBuilder::new(&context.device, Some("scene"))
+            .add_uniform(wgpu::ShaderStages::VERTEX)
+            .build_layout();
+
+        let geometry_bind_group_layout = BindGroupLayoutBuilder::new(&context.device, Some("geometry"))
+            .add_uniform(wgpu::ShaderStages::VERTEX)
+            .build_layout();
+
+        let material_bind_group_layout = BindGroupLayoutBuilder::new(&context.device, Some("material"))
+            .add_texture(wgpu::ShaderStages::FRAGMENT, wgpu::TextureSampleType::Float { filterable: true }, false)
+            .add_sampler(wgpu::ShaderStages::FRAGMENT, wgpu::SamplerBindingType::Filtering)
+            .add_uniform(wgpu::ShaderStages::FRAGMENT)
+            .build_layout();
+        
+        let pipeline_layout = context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("GBuffer pipeline layout"),
+            bind_group_layouts: &[
+                scene_bind_group_layout.layout(),
+                geometry_bind_group_layout.layout(),
+                material_bind_group_layout.layout(),
+            ],
+            immediate_size: 0,
+        });
+
+        let pipeline = context.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("GBuffer Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader.module(),
+                entry_point: shader.vert_entry(),
+                buffers: shader.vertex_buffers(),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader.module(),
+                entry_point: shader.frag_entry(),
+                targets: &[
+                    Some(wgpu::ColorTargetState {
+                        format: context.surface_config.format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL
+                    }),
+                ],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            depth_stencil: None,
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: 0xFFFF_FFFF_FFFF_FFFF_u64, // use all sample mask
+                alpha_to_coverage_enabled: false
+            },
+            multiview_mask: None,
+            cache: None,
+        });
+        
+        let camera_buffer = context.get_buffer(camera_buffer_handle)
+            .expect("Failed to get camera buffer in lighting pass");
+
+        let camera_bind_group = scene_bind_group_layout.create_bind_group(&context.device, &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding()
+            }
+        ]);
+
+        Self {
+            name: "alpha_forward_pass",
+            kind: RenderPassKind::Graphics,
+            pipeline,
+            renderables,
+            camera_bind_group,
+            geometry_bind_group_layout,
+            material_bind_group_layout,
+            depth_texture_handle,
+            view: None,
+        }
+    }
+
+    pub fn update_frame_data(&mut self, output: wgpu::TextureView) {
+        self.view = Some(output);
+    }
+}
+
+impl RenderPassNode for AlphaRenderPass {
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn kind(&self) -> RenderPassKind {
+        self.kind
+    }
+
+    fn on_resize(&mut self, context: &Context, width: u32, height: u32) {
+        
+    }
+
+    fn execute(&self, encoder: &mut wgpu::CommandEncoder, context: &Context) {
+        let view = match &self.view {
+            Some(view) => view,
+            None => return,
+        };
+        
+        let depth_texture_view = context.get_texture_view(self.depth_texture_handle)
+            .expect("Failed to get depth texture view in debug grid pass");
+
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some(format!("{}_render_pass", self.name).as_str()),
+            color_attachments: &[
+                Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store
+                    },
+                }),
+            ],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+            multiview_mask: None,
+        });
+
+        render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+        render_pass.set_pipeline(&self.pipeline);
+
+        for renderable in &self.renderables {
+            let geometry_uniform = context.get_buffer(renderable.uniform_handle)
+                .expect("Failed to get alpha renderable uniform");
+
+            let geometry_bind_group = self.geometry_bind_group_layout.create_bind_group(&context.device, &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: geometry_uniform.as_entire_binding(),
+                }
+            ]);
+            render_pass.set_bind_group(1, &geometry_bind_group, &[]);
+            
+            let material_texture_view = context.get_texture_view(renderable.material.diffuse_texture_handle)
+                .expect("Failed to get texture view for material diffuse texture");
+            let material_sampler = context.get_sampler(renderable.material.diffuse_texture_handle)
+                .expect("Failed to get sampler for material diffuse texture");
+            let dissolve_buffer = context.get_buffer(renderable.material.dissolve.unwrap())
+                .expect("Failed to get dissolve buffer for alpha-based renderable");
+
+            let material_bind_group = self.material_bind_group_layout.create_bind_group(&context.device, &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(material_texture_view)
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(material_sampler)
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Buffer(dissolve_buffer.as_entire_buffer_binding())
+                }
+            ]);
+            render_pass.set_bind_group(2, &material_bind_group, &[]);
+            
+            match &renderable.mesh {
+                Some(mesh_id) => {
+                    let mesh = match context.get_resource(&mesh_id).unwrap() {
+                        ResourceData::Mesh(mesh) => mesh,
+                        _ => continue,
+                    };
+                    render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+
+                    match &mesh.index_buffer {
+                        Some(index_buffer) => {
+                            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                            render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                        },
+                        None => {
+                            render_pass.draw(0..mesh.vertex_count, 0..1);
+                        },
+                    }
+                },
+                None => continue,
+            }
+        }
     }
 }

@@ -11,12 +11,7 @@ fn vs_main(
 
 @group(0) @binding(0) var gBufferNormal: texture_2d<f32>;
 @group(0) @binding(1) var gBufferAlbedo: texture_2d<f32>;
-// @group(0) @binding(2) var gBufferDepth: texture_depth_2d; 
 @group(0) @binding(2) var gBufferDepth: texture_2d<f32>;
-
-struct Config {
-  numLights : u32,
-}
 struct Camera {
   viewProjectionMatrix : mat4x4f,
   invViewProjectionMatrix : mat4x4f,
@@ -65,19 +60,6 @@ fn fs_main(
     0
   ).rgb;
 
-  // return vec4(albedo, 1.0);
-
-//  for (var i = 0u; i < config.numLights; i++) {
-//    let L = lightsBuffer.lights[i].position.xyz - position;
-//    let distance = length(L);
-//    if (distance > lightsBuffer.lights[i].radius) {
-//      continue;
-//    }
-//    let lambert = max(dot(normal, normalize(L)), 0.0);
-//    result += vec3f(
-//      lambert * pow(1.0 - distance / lightsBuffer.lights[i].radius, 2.0) * lightsBuffer.lights[i].color * albedo
-//    );
-//  }
 
     let light_offset = 1.0;
     let light_position = vec3(-1.0, 1.5, 2) * light_offset;

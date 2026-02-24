@@ -66,8 +66,6 @@ pub struct InputGeometry {
     pub name: String,
     pub vertices: Vec<GBufferVertex>,
     pub indices: Option<Vec<u32>>,
-
-    // pub material: Material
 }
 
 pub struct ObjModel {

@@ -116,6 +116,8 @@ impl<'a> ApplicationHandler for Driver<'a> {
                 }
             },
             WindowEvent::Resized(size) => {
+                renderer.update_camera(&self.camera_controller, context);
+                renderer.update_dimensions(size.width, size.height);
                 context.update_dimensions(size.width, size.height);
                 renderer.resize(context, size.width, size.height);
             },

@@ -11,6 +11,8 @@ pub trait Renderer<'a> {
     fn update(&mut self);
 
     fn update_camera(&mut self, camera_controller: &CameraController, context: &Context);
+
+    fn update_dimensions(&mut self, width: u32, height: u32);
 }
 
 pub struct DeferredRenderer<'a> {
@@ -18,6 +20,7 @@ pub struct DeferredRenderer<'a> {
     write_gbuffers_pass: builtin::WriteGBuffersPass,
     lighting_pass: builtin::LightingPass,
     debug_grid_pass: builtin::DebugGridPass,
+    alpha_forward_pass: builtin::AlphaRenderPass,
 
     gbuffer_normal_texture_handle: TextureHandle,
     gbuffer_albedo_texture_handle: TextureHandle,
@@ -81,7 +84,8 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
             gbuffer_normal_texture_handle,
             gbuffer_albedo_texture_handle,
             gbuffer_depth_texture_handle,
-            camera_buffer_handle
+            camera_buffer_handle,
+
         );
 
         let debug_grid_pass = builtin::DebugGridPass::new(
@@ -90,11 +94,19 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
             camera_buffer_handle
         );
 
+        let alpha_forward_pass = builtin::AlphaRenderPass::new(
+            context,
+            camera_buffer_handle,
+            gbuffer_depth_texture_handle,
+            render_data.transparent_renderables
+        );
+
         Self {
             scene,
             write_gbuffers_pass,
             lighting_pass,
             debug_grid_pass,
+            alpha_forward_pass,
             gbuffer_depth_texture_handle,
             gbuffer_albedo_texture_handle,
             gbuffer_normal_texture_handle,
@@ -103,8 +115,12 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
         }
     }
 
+    fn update_dimensions(&mut self, width: u32, height: u32) {
+        self.camera.aspect = width as f32 / height as f32;
+    }
+
     fn update(&mut self) {
-        
+        todo!()
     }
 
     fn update_camera(&mut self, camera_controller: &CameraController, context: & Context) {
@@ -137,6 +153,9 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
             view: &frame_resource.output_view,
         });
         self.lighting_pass.execute(&mut encoder, context);
+
+        self.alpha_forward_pass.update_frame_data(frame_resource.output_view.clone());
+        self.alpha_forward_pass.execute(&mut encoder, context);
     }
 }
 
@@ -152,20 +171,21 @@ pub struct Renderable {
     pub model_matrix: cgmath::Matrix4<f32>,
     pub normal_model_matrix: cgmath::Matrix4<f32>, 
     pub uniform_handle: BufferHandle,
-    // pub uniform: wgpu::Buffer,
     pub material: Material
 }
 
 pub struct RenderData {
     pub camera: Camera,
-    pub opaque_renderables: Vec<Renderable>
+    pub opaque_renderables: Vec<Renderable>,
+    pub transparent_renderables: Vec<Renderable>,
 }
 
 impl<'a> RenderData {
     pub fn new(scene: &Scene<'a>, context: &mut Context) -> Self {
         let mut render_data = RenderData {
             camera: Camera::default(),
-            opaque_renderables: vec![]
+            opaque_renderables: vec![],
+            transparent_renderables: vec![],
         };
 
         // TODO: find camera here
@@ -226,23 +246,30 @@ impl<'a> RenderData {
                         let default_material = Material::from_path(&node.material_path, context);
                         let material = match &model.material {
                             Some(material) => {
-                                match &material.diffuse_texture {
-                                    Some(diffuse_data) => {
-                                        Material::from_image_data(&diffuse_data, context)
-                                    },
-                                    None => default_material,
-                                }
+                                Material::from_info(material, context)
                             },
                             None => default_material,
                         };
 
-                        render_data.opaque_renderables.push(Renderable { 
-                            mesh: Some(mesh_handle), 
-                            model_matrix, 
-                            normal_model_matrix: inverse_transpose_model,
-                            uniform_handle,
-                            material,
-                        });
+                        match material.dissolve {
+                            Some(_) => {
+                                render_data.transparent_renderables.push(Renderable { 
+                                    mesh: Some(mesh_handle), 
+                                    model_matrix, 
+                                    normal_model_matrix: inverse_transpose_model,
+                                    uniform_handle,
+                                    material,
+                                })
+                            },
+                            None => 
+                                render_data.opaque_renderables.push(Renderable { 
+                                    mesh: Some(mesh_handle), 
+                                    model_matrix, 
+                                    normal_model_matrix: inverse_transpose_model,
+                                    uniform_handle,
+                                    material,
+                                }),
+                        }
                     }
                 },
                 None => {},
