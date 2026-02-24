@@ -162,14 +162,12 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct RenderableGeometryUniform {
-    model_matrix: [[f32; 4]; 4],
-    normal_model_matrix: [[f32; 4]; 4],
+    pub model_matrix: [[f32; 4]; 4],
+    pub normal_model_matrix: [[f32; 4]; 4],
 }
 
 pub struct Renderable {
     pub mesh: Option<ResourceId>,
-    pub model_matrix: cgmath::Matrix4<f32>,
-    pub normal_model_matrix: cgmath::Matrix4<f32>, 
     pub uniform_handle: BufferHandle,
     pub material: Material
 }
@@ -255,8 +253,8 @@ impl<'a> RenderData {
                             Some(_) => {
                                 render_data.transparent_renderables.push(Renderable { 
                                     mesh: Some(mesh_handle), 
-                                    model_matrix, 
-                                    normal_model_matrix: inverse_transpose_model,
+                                    // model_matrix, 
+                                    // normal_model_matrix: inverse_transpose_model,
                                     uniform_handle,
                                     material,
                                 })
@@ -264,8 +262,8 @@ impl<'a> RenderData {
                             None => 
                                 render_data.opaque_renderables.push(Renderable { 
                                     mesh: Some(mesh_handle), 
-                                    model_matrix, 
-                                    normal_model_matrix: inverse_transpose_model,
+                                    // model_matrix, 
+                                    // normal_model_matrix: inverse_transpose_model,
                                     uniform_handle,
                                     material,
                                 }),

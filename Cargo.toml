@@ -18,5 +18,4 @@ version = "0.30.12"
 [dependencies.image]
 version = "0.24"
 default-features = false
-features = ["jpeg", "png"]
-
+features = ["jpeg", "png", "tga"]

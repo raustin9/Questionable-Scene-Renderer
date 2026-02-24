@@ -1,4 +1,4 @@
-use crate::{geometry::{GBufferVertex, Vertex}, gfx::{Context, render_graph::{RenderPassKind, RenderPassNode}, renderer::Renderable, resource::{BufferHandle, ResourceData, ResourceId, TextureHandle}, texture}, shader::{BindGroupLayout, BindGroupLayoutBuilder, ShaderBuilder}};
+use crate::{geometry::{GBufferVertex, Vertex}, gfx::{Context, render_graph::{RenderPassKind, RenderPassNode}, renderer::Renderable, resource::{BufferHandle, PipelineBuilder, ResourceData, ResourceId, TextureHandle}, texture}, shader::{BindGroupLayout, BindGroupLayoutBuilder, ShaderBuilder}};
 
 pub struct WriteGBuffersPassFrameData<'a> {
     pub camera_buffer: &'a wgpu::Buffer,
@@ -9,7 +9,7 @@ pub struct WriteGBuffersPass {
     name: &'static str,
     kind: RenderPassKind,
 
-    pipeline: wgpu::RenderPipeline,
+    texture_pipeline: wgpu::RenderPipeline,
 
     scene_bind_group_layout: BindGroupLayout,
     scene_bind_group: wgpu::BindGroup,
@@ -70,43 +70,37 @@ impl WriteGBuffersPass {
             immediate_size: 0,
         });
 
-        let pipeline = context.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("GBuffer Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &gbuffer_shader.module(),
-                entry_point: gbuffer_shader.vert_entry(),
-                buffers: gbuffer_shader.vertex_buffers(),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &gbuffer_shader.module(),
-                entry_point: gbuffer_shader.frag_entry(),
-                targets: &[
-                    // Normal 
-                    Some(wgpu::ColorTargetState {
-                        format: normal_texture.format(),
-                        blend: Some(wgpu::BlendState::REPLACE),
-                        write_mask: wgpu::ColorWrites::ALL
-                    }),
-                    
-                    // Normal 
-                    Some(wgpu::ColorTargetState {
-                        format: albedo_texture.format(),
-                        blend: Some(wgpu::BlendState::REPLACE),
-                        write_mask: wgpu::ColorWrites::ALL
-                    }),
-                ],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            depth_stencil: Some(wgpu::DepthStencilState {
+        let mut pipeline_builder = PipelineBuilder::new(
+            &gbuffer_shader.module(), 
+            Some(&gbuffer_shader.module())
+        );
+
+        let vertex_buffer_layouts = [
+            GBufferVertex::layout()
+        ];
+        
+        pipeline_builder
+            .vert_entry("vs_main")
+            .frag_entry("fs_main")
+            .set_vertex_layouts(&vertex_buffer_layouts)
+            .add_color_target(wgpu::ColorTargetState {
+                format: normal_texture.format(),
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL
+            })
+            .add_color_target(wgpu::ColorTargetState {
+                format: albedo_texture.format(),
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL
+            })
+            .depth_stencil(wgpu::DepthStencilState {
                 format: depth_texture.format(),
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::Less,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
+            })
+            .topology(wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
@@ -114,15 +108,76 @@ impl WriteGBuffersPass {
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
-            },
-            multisample: wgpu::MultisampleState {
+            })
+            .multisample(wgpu::MultisampleState {
                 count: 1,
                 mask: 0xFFFF_FFFF_FFFF_FFFF_u64, // use all sample mask
                 alpha_to_coverage_enabled: false
-            },
-            multiview_mask: None,
-            cache: None,
-        });
+            });
+
+        let layouts = [
+            scene_bind_group_layout.layout(),
+            geometry_bind_group_layout.layout(),
+            material_bind_group_layout.layout(),
+        ];
+
+        pipeline_builder.set_bind_group_layouts(&layouts);
+
+        let texture_pipeline = pipeline_builder.build(&context.device);
+
+//        let texture_pipeline = context.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+//            label: Some("GBuffer Pipeline"),
+//            layout: Some(&pipeline_layout),
+//            vertex: wgpu::VertexState {
+//                module: &gbuffer_shader.module(),
+//                entry_point: gbuffer_shader.vert_entry(),
+//                buffers: gbuffer_shader.vertex_buffers(),
+//                compilation_options: wgpu::PipelineCompilationOptions::default(),
+//            },
+//            fragment: Some(wgpu::FragmentState {
+//                module: &gbuffer_shader.module(),
+//                entry_point: gbuffer_shader.frag_entry(),
+//                targets: &[
+//                    // Normal 
+//                    Some(wgpu::ColorTargetState {
+//                        format: normal_texture.format(),
+//                        blend: Some(wgpu::BlendState::REPLACE),
+//                        write_mask: wgpu::ColorWrites::ALL
+//                    }),
+//                    
+//                    // Normal 
+//                    Some(wgpu::ColorTargetState {
+//                        format: albedo_texture.format(),
+//                        blend: Some(wgpu::BlendState::REPLACE),
+//                        write_mask: wgpu::ColorWrites::ALL
+//                    }),
+//                ],
+//                compilation_options: wgpu::PipelineCompilationOptions::default(),
+//            }),
+//            depth_stencil: Some(wgpu::DepthStencilState {
+//                format: depth_texture.format(),
+//                depth_write_enabled: true,
+//                depth_compare: wgpu::CompareFunction::Less,
+//                stencil: wgpu::StencilState::default(),
+//                bias: wgpu::DepthBiasState::default(),
+//            }),
+//            primitive: wgpu::PrimitiveState {
+//                topology: wgpu::PrimitiveTopology::TriangleList,
+//                strip_index_format: None,
+//                front_face: wgpu::FrontFace::Ccw,
+//                cull_mode: Some(wgpu::Face::Back),
+//                polygon_mode: wgpu::PolygonMode::Fill,
+//                unclipped_depth: false,
+//                conservative: false,
+//            },
+//            multisample: wgpu::MultisampleState {
+//                count: 1,
+//                mask: 0xFFFF_FFFF_FFFF_FFFF_u64, // use all sample mask
+//                alpha_to_coverage_enabled: false
+//            },
+//            multiview_mask: None,
+//            cache: None,
+//        });
 
         let camera_buffer = context.get_buffer(camera_buffer_handle)
             .expect("Failed to get camera buffer when creating write gbuffer pass");
@@ -137,7 +192,7 @@ impl WriteGBuffersPass {
         Self {
             name: "write_gbuffers_pass",
             kind: RenderPassKind::Graphics,
-            pipeline,
+            texture_pipeline,
             normal_texture_handle,
             albedo_texture_handle,
             depth_texture_handle,
@@ -216,7 +271,7 @@ impl<'a> RenderPassNode for WriteGBuffersPass {
         });
 
         render_pass.set_bind_group(0, &self.scene_bind_group, &[]);
-        render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_pipeline(&self.texture_pipeline);
 
         for renderable in &self.renderables {
             let uniform = context.get_buffer(renderable.uniform_handle)

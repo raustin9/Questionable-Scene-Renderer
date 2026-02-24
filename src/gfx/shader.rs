@@ -2,6 +2,8 @@ use std::{borrow::Cow, error::Error, fs};
 
 use wgpu::util::DeviceExt;
 
+use crate::gfx::{Context, resource::BufferHandle};
+
 // TODO: use the builder pattern for this
 pub struct Shader<'a> {
     module: wgpu::ShaderModule,

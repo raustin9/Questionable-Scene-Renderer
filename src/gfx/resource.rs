@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, hash::{DefaultHasher, Hash, Hasher}, num::NonZero};
 
 use wgpu::util::DeviceExt;
 
@@ -47,22 +47,37 @@ pub struct BufferResource {
     pub usages: wgpu::BufferUsages,
 }
 
-pub type BufferHandle = ResourceId;
+#[derive(Hash, Eq, PartialEq, Debug, Copy, Clone)]
+pub struct BufferHandle(u64);
+
+impl BufferHandle {
+    pub fn new(hash: u64) -> Self {
+        Self(hash)
+    }
+}
+
 pub struct BufferRegistry {
     buffers: HashMap<BufferHandle, BufferResource>,
-
+    hasher: DefaultHasher,
 }
 
 impl BufferRegistry {
     pub fn new() -> Self {
         Self {
-            buffers: HashMap::new()
+            buffers: HashMap::new(),
+            hasher: DefaultHasher::new()
         }
     }
 
     /// Create a buffer and return its handle
     pub fn create_buffer(&mut self, device: &wgpu::Device, usages: wgpu::BufferUsages, data: &[u8]) -> BufferHandle {
-        let handle = BufferHandle::new();
+        data.hash(&mut self.hasher);
+        let handle = BufferHandle::new(self.hasher.finish());
+
+        if self.buffers.contains_key(&handle) {
+            return handle;
+        }
+
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("buffer"),
             contents: data,
@@ -315,5 +330,169 @@ impl TextureRegistry {
                 resource.view = updated_view;
             }
         }
+    }
+}
+
+pub type PipelineHandle = ResourceId;
+
+pub struct PipelineResource {
+    pipeline: wgpu::RenderPipeline
+}
+
+pub struct PipelineManager {
+    pipelines: HashMap<PipelineHandle, PipelineResource>,
+}
+
+impl PipelineManager {
+    pub fn new() -> Self {
+        Self {
+            pipelines: HashMap::new(),
+        }
+    }
+}
+
+pub struct PipelineBuilder<'a> {
+    // bind_group_layouts: Vec<wgpu::BindGroupLayout>,
+    label: Option<&'a str>,
+    vert_module: &'a wgpu::ShaderModule,
+    frag_module: Option<&'a wgpu::ShaderModule>,
+    topology: wgpu::PrimitiveState,
+    vert_entry: &'a str,
+    frag_entry: Option<&'a str>,
+
+    vertex_buffers: &'a [wgpu::VertexBufferLayout<'a>],
+    color_targets: Vec<Option<wgpu::ColorTargetState>>,
+    depth_stencil_state: Option<wgpu::DepthStencilState>,
+    multisample: wgpu::MultisampleState,
+    multiview_mask: Option<NonZero<u32>>,
+    cache: Option<&'a wgpu::PipelineCache>,
+
+    bind_group_layouts: &'a[&'a wgpu::BindGroupLayout]
+}
+
+impl<'a> PipelineBuilder<'a> {
+    pub fn new(vert_module: &'a wgpu::ShaderModule, frag_module: Option<&'a wgpu::ShaderModule>) -> Self {
+        let topology = wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: Some(wgpu::Face::Back),
+            polygon_mode: wgpu::PolygonMode::Fill,
+            unclipped_depth: false,
+            conservative: false,
+        };
+
+        let multisample = wgpu::MultisampleState {
+            count: 1,
+            mask: 0xFFFF_FFFF_FFFF_FFFF_u64, // use all sample mask
+            alpha_to_coverage_enabled: false
+        };
+
+        Self {
+            label: None,
+            vert_module,
+            frag_module,
+            topology,
+            frag_entry: match frag_module {
+                Some(_) => Some("main"),
+                None => None,
+            },
+            vert_entry: "main",
+            vertex_buffers: &[],
+            color_targets: Vec::new(),
+            depth_stencil_state: None,
+            cache: None,
+            multiview_mask: None,
+            bind_group_layouts: &[],
+            multisample,
+        }
+    }
+
+    pub fn build(&self, device: &wgpu::Device) -> wgpu::RenderPipeline {
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("pipeline_builder_layout"),
+            bind_group_layouts: self.bind_group_layouts,
+            immediate_size: 0
+        });
+
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: self.label,
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: self.vert_module,
+                entry_point: Some(self.vert_entry),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: self.vertex_buffers
+            },
+            fragment: match self.frag_module {
+                None => None,
+                Some(module) => {
+                    Some(wgpu::FragmentState {
+                        module: module,
+                        entry_point: self.frag_entry,
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        targets: self.color_targets.as_slice()
+                    })
+                }
+            },
+            depth_stencil: self.depth_stencil_state.clone(),
+            primitive: self.topology,
+            multisample: self.multisample,
+            multiview_mask: self.multiview_mask,
+            cache: self.cache,
+        })
+    }
+
+    pub fn vert_entry(&mut self, entry: &'a str) -> &mut Self {
+        self.vert_entry = entry;
+
+        self
+    }
+
+    pub fn frag_entry(&mut self, entry: &'a str) -> &mut Self {
+        self.frag_entry = Some(entry);
+
+        self
+    }
+
+    pub fn label(&mut self, label: &'a str) -> &mut Self {
+        self.label = Some(label);
+
+        self
+    }
+
+    pub fn add_color_target(&mut self, target: wgpu::ColorTargetState) -> &mut Self {
+        self.color_targets.push(Some(target));
+
+        self
+    }
+
+    pub fn depth_stencil(&mut self, state: wgpu::DepthStencilState) -> &mut Self {
+        self.depth_stencil_state = Some(state);
+
+        self
+    }
+
+    pub fn set_bind_group_layouts(&mut self, layouts: &'a [&'a wgpu::BindGroupLayout]) -> &mut Self {
+        self.bind_group_layouts = layouts;
+
+        self
+    }
+    
+    pub fn topology(&mut self, topology: wgpu::PrimitiveState) -> &mut Self {
+        self.topology = topology;
+
+        self
+    }
+
+    pub fn multisample(&mut self, multisample: wgpu::MultisampleState) -> &mut Self {
+        self.multisample = multisample;
+
+        self
+    }
+
+    pub fn set_vertex_layouts(&mut self, layouts: &'a [wgpu::VertexBufferLayout<'a>]) -> &mut Self {
+        self.vertex_buffers = layouts;
+        self
     }
 }
