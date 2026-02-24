@@ -31,5 +31,6 @@ fn main() {
         })
         .with_transform(qsr::Transform::Translate([8.0, 0.0, 10.0]))
         .with_transform(qsr::Transform::Scale([0.5, 0.5, 0.5]));
+
     let _ = qsr::driver::Driver::run(&mut scene);
 }
