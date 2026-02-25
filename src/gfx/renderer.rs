@@ -119,7 +119,9 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
             context,
             camera_buffer_handle,
             gbuffer_depth_texture_handle,
-            render_data.transparent_renderables
+            render_data.transparent_renderables,
+            lights_storage_buffer_handle,
+            lights_uniform_buffer_handle,
         );
 
         Self {

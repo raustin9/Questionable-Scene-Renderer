@@ -779,6 +779,10 @@ pub struct AlphaRenderPass {
     material_bind_group_layout: BindGroupLayout,
     no_texture_material_bind_group_layout: BindGroupLayout,
 
+    lights_bind_group_layout: BindGroupLayout,
+    lights_storage_buffer_handle: BufferHandle,
+    lights_uniform_buffer_handle: BufferHandle,
+
     depth_texture_handle: TextureHandle,
     
 
@@ -793,6 +797,8 @@ impl AlphaRenderPass {
         camera_buffer_handle: BufferHandle,
         depth_texture_handle: TextureHandle,
         renderables: Vec<Renderable>,
+        lights_storage_buffer_handle: BufferHandle,
+        lights_uniform_buffer_handle: BufferHandle,
     ) -> Self {
         let shader = ShaderBuilder::new(&context.device, include_str!("../../shaders/common/alpha.wgsl").into())
             .vert_entry("vs_main")
@@ -829,6 +835,11 @@ impl AlphaRenderPass {
             .add_uniform(wgpu::ShaderStages::FRAGMENT)
             .add_uniform(wgpu::ShaderStages::FRAGMENT)
             .build_layout();
+
+        let lights_bind_group_layout = BindGroupLayoutBuilder::new(&context.device, Some("lighting_lights"))
+            .add_uniform(wgpu::ShaderStages::FRAGMENT)
+            .add_storage_buffer(wgpu::ShaderStages::FRAGMENT, Some(NonZero::new(32_u64).unwrap()))
+            .build_layout();
         
         let pipeline_layout = context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("GBuffer pipeline layout"),
@@ -836,6 +847,7 @@ impl AlphaRenderPass {
                 scene_bind_group_layout.layout(),
                 geometry_bind_group_layout.layout(),
                 material_bind_group_layout.layout(),
+                lights_bind_group_layout.layout(),
             ],
             immediate_size: 0,
         });
@@ -877,11 +889,13 @@ impl AlphaRenderPass {
             scene_bind_group_layout.layout(),
             geometry_bind_group_layout.layout(),
             material_bind_group_layout.layout(),
+            lights_bind_group_layout.layout(),
         ];
         let no_texture_layouts = [
             scene_bind_group_layout.layout(),
             geometry_bind_group_layout.layout(),
             no_texture_material_bind_group_layout.layout(),
+            lights_bind_group_layout.layout(),
         ];
 
         pipeline_builder.set_bind_group_layouts(&has_texture_layouts);
@@ -916,6 +930,9 @@ impl AlphaRenderPass {
             material_bind_group_layout,
             no_texture_material_bind_group_layout,
             depth_texture_handle,
+            lights_bind_group_layout,
+            lights_storage_buffer_handle,
+            lights_uniform_buffer_handle,
             view: None,
         }
     }
@@ -977,6 +994,22 @@ impl RenderPassNode for AlphaRenderPass {
 
         render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
         // render_pass.set_pipeline(&self.pipeline);
+        
+        let lights_uniform = context.get_buffer(self.lights_uniform_buffer_handle)
+            .expect("Failed to get lights uniform buffer");
+        let lights_storage = context.get_buffer(self.lights_storage_buffer_handle)
+            .expect("Failed to get lights storage buffer");
+        let lights_bind_group = self.lights_bind_group_layout.create_bind_group(&context.device, &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: lights_uniform.as_entire_binding()
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: lights_storage.as_entire_binding()
+            },
+        ]);
+        render_pass.set_bind_group(3, &lights_bind_group, &[]);
 
         for renderable in &self.renderables {
             let geometry_uniform = context.get_buffer(renderable.uniform_handle)

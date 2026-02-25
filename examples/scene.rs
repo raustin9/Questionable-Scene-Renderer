@@ -14,19 +14,29 @@ fn main() {
     });
 
     scene.add_light(qsr::LightNode { 
-        location: [0.0, 10.0, 0.0],
+        location: [15.0, 10.0, 0.0],
         color: [1.0, 1.0, 1.0], 
     });
     
-    scene.create_node()
-        .with_model(qsr::ModelSpec::ObjFile { path: "resources/interceptor/Interceptor/flying.obj", texture_path: None })
-        .with_transform(qsr::Transform::Translate([10.0, 0.0, 0.0]))
-        .with_transform(qsr::Transform::Scale([0.05, 0.05, 0.05]));
+//    scene.create_node()
+//        .with_model(qsr::ModelSpec::ObjFile { path: "resources/airplane_v2/plane.obj", texture_path: None })
+//        // .with_model(qsr::ModelSpec::ObjFile { path: "resources/interceptor/Interceptor/flying.obj", texture_path: None })
+//        .with_transform(qsr::Transform::Translate([10.0, 0.0, 0.0]))
+//        // .with_transform(qsr::Transform::Scale([0.05, 0.05, 0.05]))
+//        // .with_transform(qsr::Transform::Rotate([0.0, 1.0, 0.0], qsr::RotationUnit::Deg(270.0)))
+//        .with_transform(qsr::Transform::Scale([0.02, 0.02, 0.02]))
+//        .with_transform(qsr::Transform::Rotate([1.0, 0.0, 0.0], qsr::RotationUnit::Deg(270.0)))
+//        ;
+//    
+//    scene.create_node()
+//        .with_model(qsr::ModelSpec::ObjFile { path: "resources/aircraft/aircraft.obj", texture_path: None })
+//        .with_transform(qsr::Transform::Translate([-10.0, 0.0, 0.0]))
+//        .with_transform(qsr::Transform::Scale([3.5, 3.5, 3.5]));
     
     scene.create_node()
-        .with_model(qsr::ModelSpec::ObjFile { path: "resources/aircraft/aircraft.obj", texture_path: None })
-        .with_transform(qsr::Transform::Translate([-10.0, 0.0, 0.0]))
-        .with_transform(qsr::Transform::Scale([3.5, 3.5, 3.5]));
+        .with_model(qsr::ModelSpec::ObjFile { path: "resources/WarpShip2/Warpship.obj", texture_path: None })
+        .with_transform(qsr::Transform::Translate([0.0, 0.0, 0.0]))
+        .with_transform(qsr::Transform::Scale([0.1, 0.1, 0.1]));
 
     let _ = qsr::driver::Driver::run(&mut scene);
 }
