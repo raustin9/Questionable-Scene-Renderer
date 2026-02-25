@@ -333,10 +333,69 @@ impl TextureRegistry {
     }
 }
 
-pub type PipelineHandle = ResourceId;
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+pub struct PipelineHandle(u64);
+
+impl PipelineHandle {
+    pub fn new(hash: u64) -> Self {
+        Self(hash)
+    }
+}
 
 pub struct PipelineResource {
-    pipeline: wgpu::RenderPipeline
+    pipeline: wgpu::RenderPipeline,
+    color_targets: Vec<wgpu::ColorTargetState>,
+    depth_target: Option<wgpu::DepthStencilState>,
+}
+
+/// Information used to request a pipeline
+pub struct PipelineRequestInfo<'a> {
+    pub color_targets: &'a [wgpu::ColorTargetState],
+    pub depth_target: Option<wgpu::DepthStencilState>,
+    pub bind_group_layouts: &'a [&'a wgpu::BindGroupLayout],
+    pub vertex_layouts: &'a [wgpu::VertexBufferLayout<'a>],
+    pub vertex_module: &'a wgpu::ShaderModule,
+    pub fragment_module: Option<&'a wgpu::ShaderModule>,
+    pub vertex_entry: &'a str,
+    pub fragment_entry: Option<&'a str>,
+    pub multisample: &'a wgpu::MultisampleState,
+    pub topology: wgpu::PrimitiveState,
+}
+
+impl<'a> PipelineRequestInfo<'a> {
+    pub fn get_hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
+impl<'a> Hash for PipelineRequestInfo<'a> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for color_target in self.color_targets {
+            color_target.hash(state);
+        }
+
+        for vertex_buffer_layout in self.vertex_layouts {
+            vertex_buffer_layout.hash(state);
+        }
+
+        self.depth_target.hash(state);
+
+        for layout in self.bind_group_layouts {
+            layout.hash(state);
+        }
+
+        self.vertex_module.hash(state);
+
+        self.fragment_module.hash(state);
+
+        self.vertex_entry.hash(state);
+        self.fragment_entry.hash(state);
+
+        self.multisample.hash(state);
+        self.topology.hash(state);
+    }
 }
 
 pub struct PipelineManager {
@@ -348,6 +407,63 @@ impl PipelineManager {
         Self {
             pipelines: HashMap::new(),
         }
+    }
+
+    pub fn request_pipeline(
+        &mut self, 
+        device: &wgpu::Device,
+        request_info: &PipelineRequestInfo
+    ) -> PipelineHandle {
+        let handle = PipelineHandle(request_info.get_hash());
+        if self.pipelines.contains_key(&handle) {
+            // println!("Found existing pipeline.");
+
+            return handle;
+        }
+        println!("No matching pipeline found. Creating new one");
+
+        let mut pipeline_builder = PipelineBuilder::new(request_info.vertex_module, request_info.fragment_module);
+        match request_info.fragment_entry {
+            Some(entry) => { pipeline_builder.frag_entry(entry); },
+            None => {}
+        };
+        pipeline_builder
+            .vert_entry(request_info.vertex_entry)
+            .set_vertex_layouts(request_info.vertex_layouts);
+
+        for target in request_info.color_targets {
+            pipeline_builder.add_color_target(target.clone());
+        }
+
+        match &request_info.depth_target {
+            Some(target) => { pipeline_builder.depth_stencil(target.clone()); },
+            None => {}
+        };
+
+        pipeline_builder
+            .topology(request_info.topology)
+            .multisample(request_info.multisample.clone())
+            .set_bind_group_layouts(request_info.bind_group_layouts);
+
+        let pipeline = pipeline_builder.build(device);
+        let resource = PipelineResource {
+            pipeline,
+            color_targets: 
+                request_info.color_targets
+                    .iter()
+                    .map(|target| target.clone())
+                    .collect::<Vec<_>>(),
+            depth_target: request_info.depth_target.clone(),
+        };
+
+        self.pipelines.insert(handle, resource);
+
+        handle
+    }
+
+    /// Get a pipeline from a handle
+    pub fn get_pipeline(&self, handle: PipelineHandle) -> Option<&wgpu::RenderPipeline> {
+        self.pipelines.get(&handle).map(|p| &p.pipeline)
     }
 }
 

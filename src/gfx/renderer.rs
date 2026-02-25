@@ -1,10 +1,10 @@
 use cgmath::{Matrix4, prelude::*};
-use crate::{LightNode, RotationUnit, Scene, Transform, camera::{Camera, CameraController, CameraUniform}, gfx::{Context, FrameResource, builtin::{self, LightPropertiesUniform, LightingPassFrameData, WriteGBuffersPassFrameData}, material::Material, render_graph::RenderPassNode, resource::{self, BufferHandle, ResourceData, ResourceId, TextureHandle}}};
+use crate::{LightNode, RotationUnit, Scene, Transform, camera::{Camera, CameraController, CameraUniform}, gfx::{Context, FrameResource, builtin::{self, LightPropertiesUniform, LightingPassFrameData, WriteGBuffersPassFrameData}, material::Material, render_graph::RenderPassNode, resource::{self, BufferHandle, ResourceData, ResourceId, TextureHandle}}, shader::BindGroupLayoutBuilder};
 
 pub trait Renderer<'a> {
     fn new(scene: &'a Scene<'a>, context: &mut Context) -> Self;
 
-    fn render(&mut self, context: &Context, frame_resource: &mut FrameResource);
+    fn render(&mut self, context: &mut Context, frame_resource: &mut FrameResource);
 
     fn resize(&mut self, context: &Context, width: u32, height: u32);
 
@@ -159,7 +159,7 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
         self.debug_grid_pass.on_resize(context, width, height);
     }
 
-    fn render(&mut self, context: &Context, frame_resource: &mut FrameResource) {
+    fn render(&mut self, mut context: &mut Context, frame_resource: &mut FrameResource) {
         let mut encoder = &mut frame_resource.encoder;
         let camera_buffer = context.get_buffer(self.camera_buffer_handle)
             .expect("Failed to get camera buffer");
@@ -167,18 +167,18 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
         self.write_gbuffers_pass.set_frame_data(context, &WriteGBuffersPassFrameData {
             camera_buffer: &camera_buffer,
         });
-        self.write_gbuffers_pass.execute(&mut encoder, context);
+        self.write_gbuffers_pass.execute(&mut encoder, &mut context);
 
         self.debug_grid_pass.update_frame_data(frame_resource.output_view.clone());
-        self.debug_grid_pass.execute(&mut encoder, context);
+        self.debug_grid_pass.execute(&mut encoder, &mut context);
 
         self.lighting_pass.update_frame_data(context, &LightingPassFrameData {
             view: &frame_resource.output_view,
         });
-        self.lighting_pass.execute(&mut encoder, context);
+        self.lighting_pass.execute(&mut encoder, &mut context);
 
         self.alpha_forward_pass.update_frame_data(frame_resource.output_view.clone());
-        self.alpha_forward_pass.execute(&mut encoder, context);
+        self.alpha_forward_pass.execute(&mut encoder, &mut context);
     }
 }
 
@@ -189,10 +189,15 @@ struct RenderableGeometryUniform {
     pub normal_model_matrix: [[f32; 4]; 4],
 }
 
-pub struct Renderable {
+pub struct RenderableGeometry {
     pub mesh: Option<ResourceId>,
     pub uniform_handle: BufferHandle,
-    pub material: Material
+    pub bind_group: wgpu::BindGroup,
+}
+
+pub struct Renderable {
+    pub material: Material,
+    pub geometry: RenderableGeometry
 }
 
 pub type Light = LightNode;
@@ -281,23 +286,36 @@ impl<'a> RenderData {
                             },
                             None => default_material,
                         };
+                        
+                        let uniform_buffer = context.get_buffer(uniform_handle)
+                            .unwrap();
+
+                        let bind_group_layout = BindGroupLayoutBuilder::new(&context.device, Some("geometry_bind_group"))
+                            .add_uniform(wgpu::ShaderStages::VERTEX)
+                            .build_layout();
+                        let geometry_bind_group = bind_group_layout.create_bind_group(&context.device, &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: uniform_buffer.as_entire_binding(),
+                            }
+                        ]);
+
+                        let geometry = RenderableGeometry {
+                            mesh: Some(mesh_handle),
+                            uniform_handle,
+                            bind_group: geometry_bind_group,
+                        };
 
                         match material.dissolve {
                             Some(_) => {
                                 render_data.transparent_renderables.push(Renderable { 
-                                    mesh: Some(mesh_handle), 
-                                    // model_matrix, 
-                                    // normal_model_matrix: inverse_transpose_model,
-                                    uniform_handle,
+                                    geometry,
                                     material,
                                 })
                             },
                             None => 
                                 render_data.opaque_renderables.push(Renderable { 
-                                    mesh: Some(mesh_handle), 
-                                    // model_matrix, 
-                                    // normal_model_matrix: inverse_transpose_model,
-                                    uniform_handle,
+                                    geometry,
                                     material,
                                 }),
                         }

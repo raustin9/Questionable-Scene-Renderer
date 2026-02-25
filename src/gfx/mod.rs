@@ -11,7 +11,7 @@ pub mod resource;
 pub mod builtin;
 pub mod material;
 
-use crate::{geometry::Mesh, gfx::resource::{BufferHandle, BufferRegistry, ResourceData, ResourceId, SamplerDescriptor, TextureHandle, TextureRegistry}, shader::UniformBuffer};
+use crate::{geometry::Mesh, gfx::resource::{BufferHandle, BufferRegistry, PipelineHandle, PipelineManager, PipelineRequestInfo, ResourceData, ResourceId, SamplerDescriptor, TextureHandle, TextureRegistry}, shader::UniformBuffer};
 
 pub struct Context {
     device: wgpu::Device,
@@ -23,6 +23,7 @@ pub struct Context {
     resources: HashMap<ResourceId, ResourceData>,
     texture_registry: TextureRegistry,
     buffer_registry: BufferRegistry,
+    pipeline_manager: PipelineManager,
 }
 
 pub struct FrameResource {
@@ -73,6 +74,7 @@ impl<'a> Context {
 
         let texture_registry = TextureRegistry::new(window_size.width, window_size.height);
         let buffer_registry = BufferRegistry::new();
+        let pipeline_manager = PipelineManager::new();
 
         Self {
             device,
@@ -85,6 +87,7 @@ impl<'a> Context {
             resources: HashMap::new(),
             texture_registry,
             buffer_registry,
+            pipeline_manager,
         }
     }
 
@@ -115,9 +118,7 @@ impl<'a> Context {
             .unwrap();
 
         let capabilities = surface.get_capabilities(&adapter);
-
-        return (device, queue, capabilities);
-    }
+return (device, queue, capabilities); }
 
     pub fn find_present_mode(present_modes: &[wgpu::PresentMode]) -> wgpu::PresentMode {
         for present_mode in present_modes {
@@ -272,5 +273,14 @@ impl<'a> Context {
 
     pub fn get_resource(&self, id: &ResourceId) -> Option<&ResourceData> {
         self.resources.get(id)
+    }
+
+
+    pub fn request_pipeline(&mut self, requirements: &PipelineRequestInfo) -> PipelineHandle {
+        self.pipeline_manager.request_pipeline(&self.device, requirements)
+    }
+
+    pub fn get_pipeline(&self, handle: PipelineHandle) -> Option<&wgpu::RenderPipeline> {
+        self.pipeline_manager.get_pipeline(handle)
     }
 }

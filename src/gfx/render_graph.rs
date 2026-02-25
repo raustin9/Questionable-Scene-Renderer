@@ -23,6 +23,6 @@ type RenderPassResource<'a> = (ResourceHandle<'a>, ResourceAccess);
 pub trait RenderPassNode {
     fn name(&self) -> &str;
     fn kind(&self) -> RenderPassKind;
-    fn execute(&self, encoder: &mut wgpu::CommandEncoder, context: &Context);
+    fn execute(&self, encoder: &mut wgpu::CommandEncoder, context: &mut Context);
     fn on_resize(&mut self, context: &Context, width: u32, height: u32);
 }
