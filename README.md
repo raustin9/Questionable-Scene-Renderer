@@ -36,7 +36,24 @@ A basic scene can be created like this:
 
 ```rust
 fn main() {
-    let mut scene = qsr::Scene::new();
+    let scene_width = 1000;
+    let scene_height = 800;
+    let mut scene = qsr::Scene::new(1000, 800);
+
+    scene.set_camera(qsr::camera::Camera { 
+        eye: cgmath::Point3 { x: 0.0, y: 16.0, z: 32.0 }, 
+        target: cgmath::Point3 { x: 0.0, y: 0.0, z: 0.0 }, 
+        up: cgmath::Vector3::unit_y(), 
+        aspect: scene_width as f32 / scene_height as f32, 
+        fovy: 45.0, 
+        znear: 0.1, 
+        zfar: 1000.0
+    });
+
+    scene.add_light(qsr::LightNode { 
+        location: [15.0, 10.0, 0.0],
+        color: [1.0, 1.0, 1.0], 
+    });
     
     scene.create_node()
         .with_model(qsr::ModelSpec::ObjFile { path: "resources/aircraft/aircraft.obj", texture_path: None })
@@ -46,7 +63,7 @@ fn main() {
 }
 ```
 This will pull up a window with the scene rendered.
-![example 1](https://private-user-images.githubusercontent.com/71673490/553867558-00e800f1-426c-4e4a-a0d9-65c9f1402702.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NzE5MDQ3NjQsIm5iZiI6MTc3MTkwNDQ2NCwicGF0aCI6Ii83MTY3MzQ5MC81NTM4Njc1NTgtMDBlODAwZjEtNDI2Yy00ZTRhLWEwZDktNjVjOWYxNDAyNzAyLnBuZz9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNjAyMjQlMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjYwMjI0VDAzNDEwNFomWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPWIzNmY0ODRkNzg0NWI1ZGYxNzNjODVhY2ZiMWU0ZjRmNWE1ZWMxNTJiMTM0YjFhMTBmZjM2ODI2OWM3ODIyZmYmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0In0.6wRMnwQU__hKntAbf8fA_GV7loOrboKMe8ehqOqlaBQ)
+![example 1](https://private-user-images.githubusercontent.com/71673490/554530195-8152a6ee-dc80-456e-a536-0683ae22bf3d.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NzE5OTQwODQsIm5iZiI6MTc3MTk5Mzc4NCwicGF0aCI6Ii83MTY3MzQ5MC81NTQ1MzAxOTUtODE1MmE2ZWUtZGM4MC00NTZlLWE1MzYtMDY4M2FlMjJiZjNkLnBuZz9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNjAyMjUlMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjYwMjI1VDA0Mjk0NFomWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPWI0MmY3ZjRlNmY4NzNkZDIwMzNkNmFhMDY1OWJmMGM5MDllMWZmMzlhNTVlZjk2MDQzODE0MjMyMTEwZjcxYjEmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0In0.AHK6KS7GIrv7VWeuslP6G7tFa0S47fDdxbdkd7OT1gw)
 
 This `.obj` file is rendered per-model and attaches the correct textures to each model based on what the file specifies.
 
@@ -65,6 +82,11 @@ fn main() {
         fovy: 45.0, 
         znear: 0.1, 
         zfar: 1000.0
+    });
+
+    scene.add_light(qsr::LightNode { 
+        location: [15.0, 10.0, 0.0],
+        color: [1.0, 1.0, 1.0], 
     });
     
     scene.create_node()
@@ -88,7 +110,7 @@ fn main() {
 }
 ```
 Resulting in an image that would look like this:
-![example 1](https://private-user-images.githubusercontent.com/71673490/553868687-09d5ce12-ed38-4391-ae7a-8cd299da2d46.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NzE5MDQ4ODUsIm5iZiI6MTc3MTkwNDU4NSwicGF0aCI6Ii83MTY3MzQ5MC81NTM4Njg2ODctMDlkNWNlMTItZWQzOC00MzkxLWFlN2EtOGNkMjk5ZGEyZDQ2LnBuZz9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNjAyMjQlMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjYwMjI0VDAzNDMwNVomWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPTFhMTNlNWZhMTFlNjAxZmFmYjZkMTBlYTdiZmY1N2QzNDc2MTUxMTQwNGRmMzlkMWE3ODNhYjRjY2FhMTE3OTUmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0In0.sbzHNRGyM03hVPPf3Y6dlZ2hx6JD-73NBIryewUaNAU)
+![example 1](https://private-user-images.githubusercontent.com/71673490/554530736-9dbf4564-7fa4-4db4-aa88-738cf3a78887.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NzE5OTQyMTcsIm5iZiI6MTc3MTk5MzkxNywicGF0aCI6Ii83MTY3MzQ5MC81NTQ1MzA3MzYtOWRiZjQ1NjQtN2ZhNC00ZGI0LWFhODgtNzM4Y2YzYTc4ODg3LnBuZz9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNjAyMjUlMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjYwMjI1VDA0MzE1N1omWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPWVhOTNmZDczNWM5MDMwZmUwYzY1YWM0NTkwMGRiZTU0MzZlYmZmOTY2OThkODFjNDAyNGIwNGMzMGZmZTE1MDQmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0In0.0SxABYXDl4S0yu3XxsGutS2NRRPy1tdjRr_0aJUnaH0)
 
 Note that the new object is loaded from an obj file like before, but it is specified using a `qsr::ModelSpec::Custom` which allows for splitting the material and geometry specs rather than having them be in the same file.
 

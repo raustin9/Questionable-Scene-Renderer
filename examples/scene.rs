@@ -33,10 +33,27 @@ fn main() {
 //        .with_transform(qsr::Transform::Translate([-10.0, 0.0, 0.0]))
 //        .with_transform(qsr::Transform::Scale([3.5, 3.5, 3.5]));
     
+//    scene.create_node()
+//        .with_model(qsr::ModelSpec::ObjFile { path: "resources/WarpShip2/Warpship.obj", texture_path: None })
+//        .with_transform(qsr::Transform::Translate([0.0, 0.0, 0.0]))
+//        .with_transform(qsr::Transform::Scale([0.1, 0.1, 0.1]));
+
+
     scene.create_node()
-        .with_model(qsr::ModelSpec::ObjFile { path: "resources/WarpShip2/Warpship.obj", texture_path: None })
-        .with_transform(qsr::Transform::Translate([0.0, 0.0, 0.0]))
-        .with_transform(qsr::Transform::Scale([0.1, 0.1, 0.1]));
+        .with_model(qsr::ModelSpec::ObjFile { path: "resources/aircraft/aircraft.obj", texture_path: None })
+        .with_transform(qsr::Transform::Scale([3.5, 3.5, 3.5]));
+
+    scene.create_node()
+        .with_model(qsr::ModelSpec::Custom { 
+            name: "tree", 
+            geometry_path: "resources/meshes/tree.obj", 
+            material_info: qsr::MaterialDesc {
+                diffuse_texture: Some("resources/materials/default_grid.png".into()),
+                ..Default::default()
+            }
+        })
+        .with_transform(qsr::Transform::Translate([8.0, 0.0, 10.0]))
+        .with_transform(qsr::Transform::Scale([0.5, 0.5, 0.5]));
 
     let _ = qsr::driver::Driver::run(&mut scene);
 }
