@@ -4,7 +4,8 @@ pub struct Scene<'a> {
     pub width: u32,
     pub height: u32,
     pub nodes: Vec<Node<'a>>,
-    pub camera: Camera
+    pub camera: Camera,
+    pub lights: Vec<LightNode>,
 }
 
 impl<'a> Scene<'a> {
@@ -14,8 +15,15 @@ impl<'a> Scene<'a> {
             width,
             height,
             nodes: vec![],
-            camera: Camera::default()
+            camera: Camera::default(),
+            lights: vec![],
         }
+    }
+
+    pub fn add_light(&mut self, light: LightNode) -> &mut Self {
+        self.lights.push(light);
+
+        self
     }
 
     pub fn create_node(&mut self) -> &mut Node<'a> {
@@ -28,6 +36,12 @@ impl<'a> Scene<'a> {
         self.camera = camera;
         self
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct LightNode {
+    pub color: [f32; 3],
+    pub location: [f32; 3],
 }
 
 pub enum RotationUnit {

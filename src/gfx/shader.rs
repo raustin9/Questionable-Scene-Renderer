@@ -1,4 +1,4 @@
-use std::{borrow::Cow, error::Error, fs};
+use std::{borrow::Cow, error::Error, fs, num::NonZero};
 
 use wgpu::util::DeviceExt;
 
@@ -210,6 +210,21 @@ impl<'a> BindGroupLayoutBuilder<'a> {
                 ty: wgpu::BufferBindingType::Uniform,
                 has_dynamic_offset: false,
                 min_binding_size: None
+            },
+            count: None
+        });
+
+        self
+    }
+
+    pub fn add_storage_buffer(&mut self, visibility: wgpu::ShaderStages, min_binding_size: Option<NonZero<u64>>) -> &mut Self {
+        self.entries.push(wgpu::BindGroupLayoutEntry {
+            binding: self.entries.len() as u32,
+            visibility,
+            ty: wgpu::BindingType::Buffer { 
+                ty: wgpu::BufferBindingType::Storage { read_only: true }, 
+                has_dynamic_offset: false, 
+                min_binding_size,
             },
             count: None
         });

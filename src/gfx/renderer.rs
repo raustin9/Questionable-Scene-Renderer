@@ -1,5 +1,5 @@
 use cgmath::{Matrix4, prelude::*};
-use crate::{RotationUnit, Scene, Transform, camera::{Camera, CameraController, CameraUniform}, gfx::{Context, FrameResource, builtin::{self, LightingPassFrameData, WriteGBuffersPassFrameData}, material::Material, render_graph::RenderPassNode, resource::{self, BufferHandle, ResourceData, ResourceId, TextureHandle}}};
+use crate::{LightNode, RotationUnit, Scene, Transform, camera::{Camera, CameraController, CameraUniform}, gfx::{Context, FrameResource, builtin::{self, LightPropertiesUniform, LightingPassFrameData, WriteGBuffersPassFrameData}, material::Material, render_graph::RenderPassNode, resource::{self, BufferHandle, ResourceData, ResourceId, TextureHandle}}};
 
 pub trait Renderer<'a> {
     fn new(scene: &'a Scene<'a>, context: &mut Context) -> Self;
@@ -69,6 +69,26 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
             },
             None
         );
+
+        let lights_data = render_data.lights.iter()
+            .map(|light| LightPropertiesUniform {
+                position: [light.location[0], light.location[1], light.location[2], 0.0],
+                color: [light.color[0], light.color[1], light.color[2], 1.0],
+            })
+            .collect::<Vec<LightPropertiesUniform>>();
+
+        println!("Size of lights: {}", std::mem::size_of_val(lights_data.as_slice()));
+        println!("Num Lights: {}", lights_data.len());
+
+        let lights_storage_buffer_handle = context.create_buffer(
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            bytemuck::cast_slice(lights_data.as_slice())
+        );
+
+        let lights_uniform_buffer_handle = context.create_buffer(
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            bytemuck::cast_slice(&[lights_data.len() as u32])
+        );
         
         let write_gbuffers_pass = builtin::WriteGBuffersPass::new(
             context, 
@@ -85,7 +105,8 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
             gbuffer_albedo_texture_handle,
             gbuffer_depth_texture_handle,
             camera_buffer_handle,
-
+            lights_storage_buffer_handle,
+            lights_uniform_buffer_handle
         );
 
         let debug_grid_pass = builtin::DebugGridPass::new(
@@ -172,10 +193,12 @@ pub struct Renderable {
     pub material: Material
 }
 
+pub type Light = LightNode;
 pub struct RenderData {
     pub camera: Camera,
     pub opaque_renderables: Vec<Renderable>,
     pub transparent_renderables: Vec<Renderable>,
+    pub lights: Vec<Light>
 }
 
 impl<'a> RenderData {
@@ -184,10 +207,15 @@ impl<'a> RenderData {
             camera: Camera::default(),
             opaque_renderables: vec![],
             transparent_renderables: vec![],
+            lights: vec![],
         };
 
         // TODO: find camera here
         render_data.camera = scene.camera;
+
+        for light in &scene.lights {
+            render_data.lights.push(light.clone());
+        }
 
         for node in &scene.nodes {
             // Get the models from the Node.objs
