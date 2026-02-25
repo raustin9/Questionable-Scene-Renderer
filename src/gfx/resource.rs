@@ -443,6 +443,18 @@ impl<'a> PipelineBuilder<'a> {
         })
     }
 
+    pub fn vert_module(&mut self, module: &'a wgpu::ShaderModule) -> &mut Self {
+        self.vert_module = module;
+
+        self
+    }
+
+    pub fn frag_module(&mut self, module: &'a wgpu::ShaderModule) -> &mut Self {
+        self.frag_module = Some(module);
+
+        self
+    }
+
     pub fn vert_entry(&mut self, entry: &'a str) -> &mut Self {
         self.vert_entry = entry;
 

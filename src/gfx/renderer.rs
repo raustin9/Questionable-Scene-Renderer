@@ -1,4 +1,4 @@
-use cgmath::{prelude::*};
+use cgmath::{Matrix4, prelude::*};
 use crate::{RotationUnit, Scene, Transform, camera::{Camera, CameraController, CameraUniform}, gfx::{Context, FrameResource, builtin::{self, LightingPassFrameData, WriteGBuffersPassFrameData}, material::Material, render_graph::RenderPassNode, resource::{self, BufferHandle, ResourceData, ResourceId, TextureHandle}}};
 
 pub trait Renderer<'a> {
@@ -213,13 +213,16 @@ impl<'a> RenderData {
                                     model_matrix = model_matrix * scale_matrix;
                                 },
                                 Transform::Rotate(axis, unit) => {
-                                    let _rotation = cgmath::Matrix4::from_axis_angle(
+                                    let rotation_quaternion = cgmath::Quaternion::from_axis_angle(
                                         cgmath::Vector3 { x: axis[0], y: axis[1], z: axis[2] }, 
                                         match unit {
                                             RotationUnit::Rad(scalar) => cgmath::Rad(scalar.clone()),
                                             RotationUnit::Deg(scalar) => cgmath::Rad(scalar * 0.0174533),
                                         }
                                     );
+
+                                    let rotation_matrix = cgmath::Matrix4::from(rotation_quaternion);
+                                    model_matrix = model_matrix * rotation_matrix;
                                 },
                                 Transform::Translate(translate) => {
                                     let translation_matrix = cgmath::Matrix4::<f32>::from_translation(cgmath::Vector3 { x: translate[0], y: translate[1], z: translate[2] });

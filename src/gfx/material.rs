@@ -23,11 +23,17 @@ pub struct MaterialInfo {
     pub dissolve_coef: Option<f32>,
 }
 
+pub enum DiffuseResource {
+    Texture(TextureHandle),
+    Color(BufferHandle)
+}
+
 pub struct Material {
     /// The base diffuse texture for a material
-    pub diffuse_texture_handle: TextureHandle,
+    // pub diffuse_texture_handle: Option<TextureHandle>,
 
-    pub diffuse_color: [f32; 3],
+    // pub diffuse_color: Option<BufferHandle>,
+    pub diffuse: DiffuseResource,
 
     pub dissolve: Option<BufferHandle>,
 }
@@ -67,8 +73,7 @@ impl Material {
         context.write_texture(texture_handle, &diffuse_rgba, diffuse_texture_size, 4);
 
         Self { 
-            diffuse_texture_handle: texture_handle,
-            diffuse_color: [1.0, 1.0, 1.0],
+            diffuse: DiffuseResource::Texture(texture_handle),
             dissolve: None
         }
     }
@@ -103,12 +108,30 @@ impl Material {
 
     pub fn from_info(info: &MaterialInfo, context: &mut Context) -> Self {
         let diffuse_texture_handle = match &info.diffuse_texture {
-            Some(data) => Self::get_handle(&data, context),
-            None => panic!("Cannot create a material with no diffuse texture yet"),
+            Some(data) => Some(Self::get_handle(&data, context)),
+            None => None,
+            // None => panic!("Cannot create a material with no diffuse texture yet"),
         };
+
         let diffuse_color = match info.diffuse_color {
-            Some(color) => color,
-            None => [1.0, 1.0, 1.0]
+            Some(color) => 
+                Some(context.create_buffer(
+                    wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, 
+                    bytemuck::cast_slice(&[color])
+                )),
+            None => None,
+        };
+
+        let diffuse = match diffuse_texture_handle {
+            Some(handle) => DiffuseResource::Texture(handle),
+            None => match diffuse_color {
+                Some(buffer_handle) => DiffuseResource::Color(buffer_handle),
+                None => {
+                    // Fallback to default material
+                    log::warn!("No diffuse texture or color found for material. Falling back to default texture.");
+                    return Self::from_path("../../resources/materials/default_grid.png", context);
+                }
+            }
         };
 
         let dissolve = match info.dissolve_coef {
@@ -125,8 +148,7 @@ impl Material {
         };
 
         Self {
-            diffuse_texture_handle,
-            diffuse_color,
+            diffuse,
             dissolve,
         }
     }

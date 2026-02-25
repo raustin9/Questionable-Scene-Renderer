@@ -17,17 +17,19 @@ fn main() {
     
     scene.create_node()
         .with_model(qsr::ModelSpec::ObjFile { path: "resources/aircraft/aircraft.obj", texture_path: None })
-        .with_transform(qsr::Transform::Translate([-8.0, 0.0, 0.0]))
+        .with_transform(qsr::Transform::Translate([-10.0, 0.0, 0.0]))
         .with_transform(qsr::Transform::Scale([3.5, 3.5, 3.5]));
     
-//    scene.create_node()
-//        .with_model(qsr::ModelSpec::ObjFile { 
-//            path: "resources/interceptor/Interceptor/flying.obj", 
-//            texture_path: None
-//            //texture_path: Some(std::path::PathBuf::from("resources/interceptor"))
-//        })
-//        .with_transform(qsr::Transform::Translate([8.0, 0.0, 0.0]))
-//        .with_transform(qsr::Transform::Scale([1.0, 1.0, 1.0]));
+    scene.create_node()
+        .with_model(qsr::ModelSpec::ObjFile { 
+            path: "resources/airplane_v2/plane.obj", 
+            texture_path: None
+        })
+        .with_transform(qsr::Transform::Translate([10.0, 0.0, 0.0]))
+        .with_transform(qsr::Transform::Scale([0.02, 0.02, 0.02]))
+        // .with_transform(qsr::Transform::Rotate([0.0, 0.0, 1.0], qsr::RotationUnit::Deg(90.0)))
+        .with_transform(qsr::Transform::Rotate([1.0, 0.0, 0.0], qsr::RotationUnit::Deg(270.0)))
+        ;
 
 //    scene.create_node()
 //        .with_model(qsr::ModelSpec::Custom { 
