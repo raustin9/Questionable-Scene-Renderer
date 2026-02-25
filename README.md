@@ -8,13 +8,13 @@ A basic scene can be created like this:
         <td>
             <img 
                 width="550px"
-                src="https://drive.google.com/thumbnail?id=/11_tDVKy1SbXfcvLb1oa2V8-MNE_-wAMK" 
+                src="https://drive.google.com/uc?export=view&id=11_tDVKy1SbXfcvLb1oa2V8-MNE_-wAMK" 
             />
         </td>
         <td>
             <img 
                 width="550px"
-                src="https://drive.google.com/file/d/13ZRWShUHi5HR6xSA_HUld6wXrEXTLdgE/view?usp=drive_link" 
+                src="https://drive.google.com/uc?export=view&id=13ZRWShUHi5HR6xSA_HUld6wXrEXTLdgE" 
             />
         </td>
     </tr>
@@ -22,13 +22,13 @@ A basic scene can be created like this:
         <td>
             <img 
                 width="550px"
-                src="https://drive.google.com/file/d/17-U_w4-jWSRN-6ryDX1wfh4NrslqhLKY/view?usp=drive_link" 
+                src="https://drive.google.com/uc?export=view&id=17-U_w4-jWSRN-6ryDX1wfh4NrslqhLKY" 
             />
         </td>
         <td>
             <img 
                 width="550px"
-                src="https://drive.google.com/file/d/1pNaBPgn3SaNZYOqEg5OvVWsNCJLBCNXR/view?usp=drive_link" 
+                src="https://drive.google.com/uc?export=view&id=1pNaBPgn3SaNZYOqEg5OvVWsNCJLBCNXR" 
             />
         </td>
     </tr>
