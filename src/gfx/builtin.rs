@@ -11,15 +11,13 @@ pub struct WriteGBuffersPass {
     name: &'static str,
     kind: RenderPassKind,
 
-    // texture_pipeline: wgpu::RenderPipeline,
-    // no_texture_pipeline: wgpu::RenderPipeline,
-
     scene_bind_group_layout: BindGroupLayout,
     scene_bind_group: wgpu::BindGroup,
     material_bind_group_layout: BindGroupLayout,
     material_no_texture_bind_group_layout: BindGroupLayout,
 
-    shader_module: wgpu::ShaderModule,
+    has_texture_shader_module: wgpu::ShaderModule,
+    no_texture_shader_module: wgpu::ShaderModule,
     color_targets: Vec<wgpu::ColorTargetState>,
     depth_target: wgpu::DepthStencilState,
     multisample: wgpu::MultisampleState,
@@ -80,57 +78,7 @@ impl WriteGBuffersPass {
         let material_no_texture_bind_group_layout = BindGroupLayoutBuilder::new(&context.device, Some("material"))
             .add_uniform(wgpu::ShaderStages::FRAGMENT)
             .build_layout();
-
-        let mut pipeline_builder = PipelineBuilder::new(
-            &gbuffer_shader.module(), 
-            Some(&gbuffer_shader.module())
-        );
-
-        let vertex_buffer_layouts = [
-            GBufferVertex::layout()
-        ];
         
-        pipeline_builder
-            .vert_entry("vs_main")
-            .frag_entry("fs_main")
-            .set_vertex_layouts(&vertex_buffer_layouts)
-            .add_color_target(wgpu::ColorTargetState {
-                format: normal_texture.format(),
-                blend: Some(wgpu::BlendState::REPLACE),
-                write_mask: wgpu::ColorWrites::ALL
-            })
-            .add_color_target(wgpu::ColorTargetState {
-                format: albedo_texture.format(),
-                blend: Some(wgpu::BlendState::REPLACE),
-                write_mask: wgpu::ColorWrites::ALL
-            })
-            .depth_stencil(wgpu::DepthStencilState {
-                format: depth_texture.format(),
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            })
-            .topology(wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            })
-            .multisample(wgpu::MultisampleState {
-                count: 1,
-                mask: 0xFFFF_FFFF_FFFF_FFFF_u64, // use all sample mask
-                alpha_to_coverage_enabled: false
-            });
-
-        let has_texture_layouts = [
-            scene_bind_group_layout.layout(),
-            geometry_bind_group_layout.layout(),
-            material_bind_group_layout.layout(),
-        ];
         let color_targets = vec![
             wgpu::ColorTargetState {
                 format: normal_texture.format(),
@@ -166,28 +114,6 @@ impl WriteGBuffersPass {
             conservative: false,
         };
 
-        // let texture_pipeline = context.get_pipeline(texture_pipeline_handle)
-            // .expect("Failed to get texture pipeline");
-        
-        // pipeline_builder.set_bind_group_layouts(&has_texture_layouts);
-        // let texture_pipeline = pipeline_builder.build(&context.device);
-        println!("Built gbuf texture_pipeline");
-
-        let no_texture_layouts = [
-            scene_bind_group_layout.layout(),
-            geometry_bind_group_layout.layout(),
-            material_no_texture_bind_group_layout.layout(),
-        ];
-//        pipeline_builder
-//            .vert_module(no_texture_gbuffer_shader.module())
-//            .frag_module(no_texture_gbuffer_shader.module())
-//            .set_bind_group_layouts(&no_texture_layouts);
-//        let no_texture_pipeline = pipeline_builder.build(&context.device);
-        // let no_texture_pipeline = context.get_pipeline(texture_pipeline_handle)
-            // .expect("Failed to get texture pipeline");
-
-        println!("Built gbuf no_texture_pipeline");
-
         let camera_buffer = context.get_buffer(camera_buffer_handle)
             .expect("Failed to get camera buffer when creating write gbuffer pass");
         
@@ -205,9 +131,8 @@ impl WriteGBuffersPass {
             color_targets,
             multisample,
             topology,
-            shader_module: gbuffer_shader.module().clone(),
-            // texture_pipeline,
-            // no_texture_pipeline,
+            has_texture_shader_module: gbuffer_shader.module().clone(),
+            no_texture_shader_module: no_texture_gbuffer_shader.module().clone(),
             normal_texture_handle,
             albedo_texture_handle,
             depth_texture_handle,
@@ -286,30 +211,17 @@ impl<'a> RenderPassNode for WriteGBuffersPass {
             multiview_mask: None,
         });
 
-        let mut base_requirements = PipelineRequestInfo {
-            color_targets: self.color_targets.as_slice(),
-            depth_target: Some(self.depth_target.clone()),
-            vertex_module: &self.shader_module,
-            fragment_module: Some(&self.shader_module),
-            fragment_entry: Some("fs_main"),
-            vertex_entry: "vs_main",
-            multisample: &self.multisample,
-            topology: self.topology,
-            vertex_layouts: &[GBufferVertex::layout()],
-            bind_group_layouts: &[
-            ]
-        };
-        let texture_layouts = [
+        let has_texture_layouts = [
             self.scene_bind_group_layout.layout(),
             self.geometry_bind_group_layout.layout(),
             self.material_bind_group_layout.layout(),
         ];
-
-        let no_texure_layouts = [
+        let no_texture_layouts = [
             self.scene_bind_group_layout.layout(),
             self.geometry_bind_group_layout.layout(),
-            self.material_bind_group_layout.layout(),
+            self.material_no_texture_bind_group_layout.layout(),
         ];
+        
         render_pass.set_bind_group(0, &self.scene_bind_group, &[]);
 
         for renderable in &self.renderables {
@@ -333,9 +245,20 @@ impl<'a> RenderPassNode for WriteGBuffersPass {
                             resource: wgpu::BindingResource::Sampler(material_sampler)
                         },
                     ]);
-                    base_requirements.bind_group_layouts = &texture_layouts;
+                    let requirements = PipelineRequestInfo {
+                        color_targets: self.color_targets.as_slice(),
+                        depth_target: Some(self.depth_target.clone()),
+                        vertex_module: &self.has_texture_shader_module,
+                        fragment_module: Some(&self.has_texture_shader_module),
+                        fragment_entry: Some("fs_main"),
+                        vertex_entry: "vs_main",
+                        multisample: &self.multisample,
+                        topology: self.topology,
+                        vertex_layouts: &[GBufferVertex::layout()],
+                        bind_group_layouts: &has_texture_layouts
+                    };
 
-                    let pipeline_handle = context.request_pipeline(&base_requirements);
+                    let pipeline_handle = context.request_pipeline(&requirements);
                     let pipeline = context.get_pipeline(pipeline_handle)
                         .expect("Failed to get texture pipeline");
 
@@ -353,10 +276,20 @@ impl<'a> RenderPassNode for WriteGBuffersPass {
                             resource: diffuse_buffer.as_entire_binding(),
                         },
                     ]);
+                    let requirements = PipelineRequestInfo {
+                        color_targets: self.color_targets.as_slice(),
+                        depth_target: Some(self.depth_target.clone()),
+                        vertex_module: &self.no_texture_shader_module,
+                        fragment_module: Some(&self.no_texture_shader_module),
+                        fragment_entry: Some("fs_main"),
+                        vertex_entry: "vs_main",
+                        multisample: &self.multisample,
+                        topology: self.topology,
+                        vertex_layouts: &[GBufferVertex::layout()],
+                        bind_group_layouts: &no_texture_layouts
+                    };
 
-                    base_requirements.bind_group_layouts = &no_texure_layouts;
-
-                    let pipeline_handle = context.request_pipeline(&base_requirements);
+                    let pipeline_handle = context.request_pipeline(&requirements);
                     let pipeline = context.get_pipeline(pipeline_handle)
                         .expect("Failed to get texture pipeline");
                     (pipeline, bind_group)
