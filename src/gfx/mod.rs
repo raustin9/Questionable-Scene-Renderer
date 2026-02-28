@@ -11,7 +11,7 @@ pub mod resource;
 pub mod builtin;
 pub mod material;
 
-use crate::{geometry::{GBufferVertex, Mesh, Vertex}, gfx::resource::{BufferHandle, BufferRegistry, CameraInfoFeature, DiffuseColorFeature, DiffuseTextureFeature, PipelineHandle, PipelineManager, PipelineRequestInfo, ResourceData, ResourceId, SamplerDescriptor, ShaderFeatureRegistry, ShaderRegistry, TextureHandle, TextureRegistry, TransformFeature}, shader::UniformBuffer};
+use crate::{geometry::{GBufferVertex, Mesh, Vertex}, gfx::resource::{BufferHandle, BufferRegistry, CameraInfoFeature, DiffuseColorFeature, DiffuseTextureFeature, PipelineHandle, PipelineManager, PipelineRequestInfo, ResourceData, ResourceId, SamplerDescriptor, ShaderFeature, ShaderFeatureId, ShaderFeatureRegistry, ShaderRegistry, TextureHandle, TextureRegistry, TransformFeature}, shader::UniformBuffer};
 
 pub struct Context {
     device: wgpu::Device,
@@ -24,6 +24,7 @@ pub struct Context {
     texture_registry: TextureRegistry,
     buffer_registry: BufferRegistry,
     pipeline_manager: PipelineManager,
+    shader_registry: ShaderRegistry,
 }
 
 pub struct FrameResource {
@@ -31,6 +32,14 @@ pub struct FrameResource {
     output_view: wgpu::TextureView,
     output: wgpu::SurfaceTexture,
     // camera_buffer: wgpu::Buffer,
+}
+
+/// Contains the available feature id's for the shaders used by materials.
+pub struct MaterialShaderFeatures {
+    pub camera: ShaderFeatureId,
+    pub transform: ShaderFeatureId,
+    pub diffuse_texture: ShaderFeatureId,
+    pub diffuse_color: ShaderFeatureId,
 }
 
 #[rustfmt::skip]
@@ -96,7 +105,7 @@ impl<'a> Context {
 
         let texture_registry = TextureRegistry::new(window_size.width, window_size.height);
         let buffer_registry = BufferRegistry::new();
-        let pipeline_manager = PipelineManager::new(shader_registry);
+        let pipeline_manager = PipelineManager::new();
 
         Self {
             device,
@@ -110,6 +119,7 @@ impl<'a> Context {
             texture_registry,
             buffer_registry,
             pipeline_manager,
+            shader_registry,
         }
     }
 
@@ -311,12 +321,15 @@ impl<'a> Context {
         self.resources.get(id)
     }
 
-
     pub fn request_pipeline(&mut self, requirements: &PipelineRequestInfo) -> PipelineHandle {
         self.pipeline_manager.request_pipeline(&self.device, requirements)
     }
 
     pub fn get_pipeline(&self, handle: PipelineHandle) -> Option<&wgpu::RenderPipeline> {
         self.pipeline_manager.get_pipeline(handle)
+    }
+
+    pub fn get_shader_feature<F: ShaderFeature>(&self) -> Option<&resource::ShaderFeatureEntry> {
+        self.shader_registry.get_feature::<F>()
     }
 }

@@ -399,14 +399,12 @@ impl<'a> Hash for PipelineRequestInfo<'a> {
 }
 
 pub struct PipelineManager {
-    shader_registry: ShaderRegistry,
     pipelines: HashMap<PipelineHandle, PipelineResource>,
 }
 
 impl PipelineManager {
-    pub fn new(shader_registry: ShaderRegistry) -> Self {
+    pub fn new() -> Self {
         Self {
-            shader_registry,
             pipelines: HashMap::new(),
         }
     }
@@ -762,12 +760,19 @@ impl ShaderFeatureRegistry {
         id
     }
 
-    pub fn get_entry(&self, id: ShaderFeatureId) -> &ShaderFeatureEntry {
+    pub fn get_entry_from_id(&self, id: ShaderFeatureId) -> &ShaderFeatureEntry {
         &self.entries[id.0 as usize]
     }
 
     pub fn feature_id<F: ShaderFeature>(&self) -> Option<ShaderFeatureId> {
         self.id_types.get(&TypeId::of::<F>()).copied()
+    }
+
+    pub fn get_entry<F: ShaderFeature>(&self) -> Option<&ShaderFeatureEntry> {
+        match self.feature_id::<F>() {
+            Some(id) => Some(&self.entries[id.0 as usize]),
+            None => None
+        }
     }
 }
 
@@ -832,6 +837,10 @@ impl ShaderRegistry {
         }
     }
 
+    pub fn get_feature<F: ShaderFeature>(&self) -> Option<&ShaderFeatureEntry> {
+        self.features.get_entry::<F>()
+    }
+
     pub fn add_global(
         &mut self,
         device: &wgpu::Device,
@@ -846,7 +855,7 @@ impl ShaderRegistry {
         
         let bind_group_layouts = features
             .iter()
-            .map(|id| self.features.get_entry(*id).layout.clone())
+            .map(|id| self.features.get_entry_from_id(*id).layout.clone())
             .collect::<Vec<_>>();
 
         let key = ShaderKey::Global { features };
@@ -868,7 +877,7 @@ impl ShaderRegistry {
         
         let bind_group_layouts = features
             .iter()
-            .map(|id| self.features.get_entry(*id).layout.clone())
+            .map(|id| self.features.get_entry_from_id(*id).layout.clone())
             .collect::<Vec<_>>();
 
         let key = ShaderKey::Material { 
@@ -877,5 +886,18 @@ impl ShaderRegistry {
         };
 
         self.shaders.insert(key, ShaderResource { vert_module: module.clone(), frag_module: module, bind_group_layouts });
+    }
+
+    pub fn get_material(
+        &self, 
+        features: &[ShaderFeatureId],
+        vertex_layouts: &[wgpu::VertexBufferLayout<'static>]
+    ) -> Option<&ShaderResource> {
+        let key = ShaderKey::Material {
+            vertex_layouts: vertex_layouts.iter().map(|v| v.clone()).collect::<Vec<_>>(),
+            features: features.iter().map(|f| f.clone()).collect::<Vec<_>>()
+        };
+        
+        self.shaders.get(&key)
     }
 }
