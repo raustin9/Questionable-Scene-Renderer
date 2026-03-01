@@ -1,7 +1,7 @@
 
 use std::fs;
 
-use crate::gfx::{Context, resource::{self, BufferHandle, SamplerRepeat, TextureHandle}};
+use crate::gfx::{Context, resource::{self, BufferHandle, CameraInfoFeature, DiffuseColorFeature, DiffuseTextureFeature, SamplerRepeat, ShaderFeatureId, TextureHandle, TransformFeature}};
 
 #[derive(Debug)]
 pub struct MaterialInfo {
@@ -23,9 +23,41 @@ pub struct MaterialInfo {
     pub dissolve_coef: Option<f32>,
 }
 
+pub trait MaterialShaderFeatures {
+    fn features(&self, context: &Context) -> Vec<ShaderFeatureId>;
+}
+
 pub enum DiffuseResource {
     Texture(TextureHandle),
     Color(BufferHandle)
+}
+
+impl MaterialShaderFeatures for DiffuseResource {
+    fn features(&self, context: &Context) -> Vec<ShaderFeatureId> {
+        let transform_feature = context.get_shader_feature_id::<TransformFeature>()
+            .expect("Transform feature not registered");
+        let dissolve_texture_feature = context.get_shader_feature_id::<DiffuseTextureFeature>()
+            .expect("Diffuse texture feature not registered");
+        let dissolve_color_feature = context.get_shader_feature_id::<DiffuseColorFeature>()
+            .expect("Diffuse color feature not registered");
+        let camera_feature = context.get_shader_feature_id::<CameraInfoFeature>()
+            .expect("Camera feature not registered");
+
+        match self {
+            Self::Color(_) => 
+                vec![
+                    camera_feature,
+                    transform_feature,
+                    dissolve_color_feature,
+                ],
+            Self::Texture(_) =>
+                vec![
+                    camera_feature,
+                    transform_feature,
+                    dissolve_texture_feature,
+                ],
+        }
+    }
 }
 
 pub struct Material {

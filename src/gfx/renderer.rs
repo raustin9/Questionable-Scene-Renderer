@@ -1,5 +1,5 @@
 use cgmath::{Matrix4, prelude::*};
-use crate::{LightNode, RotationUnit, Scene, Transform, camera::{Camera, CameraController, CameraUniform}, gfx::{Context, FrameResource, builtin::{self, LightPropertiesUniform, LightingPassFrameData, WriteGBuffersPassFrameData}, material::Material, render_graph::RenderPassNode, resource::{self, BufferHandle, ResourceData, ResourceId, ShaderFeatureId, TextureHandle}}, shader::BindGroupLayoutBuilder};
+use crate::{LightNode, RotationUnit, Scene, Transform, camera::{Camera, CameraController, CameraUniform}, gfx::{Context, FrameResource, builtin::{self, LightPropertiesUniform, LightingPassFrameData, WriteGBuffersPassFrameData}, material::Material, render_graph::RenderPassNode, resource::{self, BufferHandle, CameraInfoFeature, ResourceData, ResourceId, ShaderFeatureId, TextureHandle}}, shader::BindGroupLayoutBuilder};
 
 pub trait Renderer<'a> {
     fn new(scene: &'a Scene<'a>, context: &mut Context) -> Self;
@@ -197,7 +197,7 @@ pub struct RenderableGeometry {
 
 pub struct Renderable {
     pub material: Material,
-    pub geometry: RenderableGeometry
+    pub geometry: RenderableGeometry,
 }
 
 pub type Light = LightNode;

@@ -1,6 +1,6 @@
 use std::num::{NonZero, NonZeroU64};
 
-use crate::{geometry::{GBufferVertex, Vertex}, gfx::{Context, material::DiffuseResource, render_graph::{RenderPassKind, RenderPassNode}, renderer::Renderable, resource::{BufferHandle, PipelineBuilder, PipelineHandle, PipelineRequestInfo, ResourceData, ResourceId, TextureHandle}, texture}, shader::{BindGroupLayout, BindGroupLayoutBuilder, ShaderBuilder}};
+use crate::{geometry::{GBufferVertex, Vertex}, gfx::{Context, material::{DiffuseResource, MaterialShaderFeatures}, render_graph::{RenderPassKind, RenderPassNode}, renderer::Renderable, resource::{BufferHandle, PipelineBuilder, PipelineHandle, PipelineRequestInfo, ResourceData, ResourceId, TextureHandle}, texture}, shader::{BindGroupLayout, BindGroupLayoutBuilder, ShaderBuilder}};
 
 pub struct WriteGBuffersPassFrameData<'a> {
     pub camera_buffer: &'a wgpu::Buffer,
@@ -227,6 +227,10 @@ impl<'a> RenderPassNode for WriteGBuffersPass {
         for renderable in &self.renderables {
             render_pass.set_bind_group(1, &renderable.geometry.bind_group, &[]);
 
+            let features = renderable.material.diffuse.features(context);
+            let _shader = context.get_material(&features, &[GBufferVertex::layout()])
+                .expect("Failed to get shader for material");
+
             let (pipeline, bind_group) = match renderable.material.diffuse {
                 // Has diffuse texture so we use it
                 DiffuseResource::Texture(texture_handle) => {
@@ -255,7 +259,7 @@ impl<'a> RenderPassNode for WriteGBuffersPass {
                         multisample: &self.multisample,
                         topology: self.topology,
                         vertex_layouts: &[GBufferVertex::layout()],
-                        bind_group_layouts: &has_texture_layouts
+                        bind_group_layouts: &has_texture_layouts,
                     };
 
                     let pipeline_handle = context.request_pipeline(&requirements);

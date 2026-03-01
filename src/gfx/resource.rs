@@ -1,4 +1,4 @@
-use std::{any::TypeId, borrow::Cow, collections::HashMap, hash::{DefaultHasher, Hash, Hasher}, num::NonZero};
+use std::{any::{Any, TypeId}, borrow::Cow, collections::HashMap, hash::{DefaultHasher, Hash, Hasher}, num::NonZero};
 
 use wgpu::util::DeviceExt;
 
@@ -752,6 +752,7 @@ impl ShaderFeatureRegistry {
         let id = ShaderFeatureId(self.entries.len() as u64);
         let layout = device.create_bind_group_layout(&F::layout_descriptor());
 
+        self.id_types.insert(type_id, id);
         self.entries.push(ShaderFeatureEntry {
             id,
             layout,
@@ -839,6 +840,10 @@ impl ShaderRegistry {
 
     pub fn get_feature<F: ShaderFeature>(&self) -> Option<&ShaderFeatureEntry> {
         self.features.get_entry::<F>()
+    }
+
+    pub fn get_feature_id<F: ShaderFeature>(&self) -> Option<ShaderFeatureId> {
+        self.features.feature_id::<F>()
     }
 
     pub fn add_global(

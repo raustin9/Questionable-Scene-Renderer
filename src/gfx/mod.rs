@@ -11,7 +11,7 @@ pub mod resource;
 pub mod builtin;
 pub mod material;
 
-use crate::{geometry::{GBufferVertex, Mesh, Vertex}, gfx::resource::{BufferHandle, BufferRegistry, CameraInfoFeature, DiffuseColorFeature, DiffuseTextureFeature, PipelineHandle, PipelineManager, PipelineRequestInfo, ResourceData, ResourceId, SamplerDescriptor, ShaderFeature, ShaderFeatureId, ShaderFeatureRegistry, ShaderRegistry, TextureHandle, TextureRegistry, TransformFeature}, shader::UniformBuffer};
+use crate::{geometry::{GBufferVertex, Mesh, Vertex}, gfx::resource::{BufferHandle, BufferRegistry, CameraInfoFeature, DiffuseColorFeature, DiffuseTextureFeature, PipelineHandle, PipelineManager, PipelineRequestInfo, ResourceData, ResourceId, SamplerDescriptor, ShaderFeature, ShaderFeatureId, ShaderFeatureRegistry, ShaderRegistry, ShaderResource, TextureHandle, TextureRegistry, TransformFeature}, shader::UniformBuffer};
 
 pub struct Context {
     device: wgpu::Device,
@@ -329,7 +329,16 @@ impl<'a> Context {
         self.pipeline_manager.get_pipeline(handle)
     }
 
+
     pub fn get_shader_feature<F: ShaderFeature>(&self) -> Option<&resource::ShaderFeatureEntry> {
         self.shader_registry.get_feature::<F>()
+    }
+
+    pub fn get_shader_feature_id<F: ShaderFeature>(&self) -> Option<resource::ShaderFeatureId> {
+        self.shader_registry.get_feature_id::<F>()
+    }
+
+    pub fn get_material(&self, features: &[ShaderFeatureId], vertex_layouts: &[wgpu::VertexBufferLayout<'static>]) -> Option<&ShaderResource> {
+        self.shader_registry.get_material(features, vertex_layouts)
     }
 }
