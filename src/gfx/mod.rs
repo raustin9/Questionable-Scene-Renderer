@@ -23,8 +23,8 @@ pub struct Context {
     resources: HashMap<ResourceId, ResourceData>,
     texture_registry: TextureRegistry,
     buffer_registry: BufferRegistry,
-    pipeline_manager: PipelineManager,
-    shader_registry: ShaderRegistry,
+    pub pipeline_manager: PipelineManager,
+    pub shader_registry: ShaderRegistry,
 }
 
 pub struct FrameResource {
@@ -340,5 +340,15 @@ impl<'a> Context {
 
     pub fn get_material(&self, features: &[ShaderFeatureId], vertex_layouts: &[wgpu::VertexBufferLayout<'static>]) -> Option<&ShaderResource> {
         self.shader_registry.get_material(features, vertex_layouts)
+    }
+
+    pub fn create_material_bind_group<F: ShaderFeature>(&self, entries: &[wgpu::BindGroupEntry]) -> wgpu::BindGroup {
+        let layout = self.device.create_bind_group_layout(&F::layout_descriptor());
+
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &layout,
+            entries
+        })
     }
 }

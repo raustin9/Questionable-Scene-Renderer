@@ -1,6 +1,6 @@
 use std::num::{NonZero, NonZeroU64};
 
-use crate::{geometry::{GBufferVertex, Vertex}, gfx::{Context, material::{DiffuseResource, MaterialShaderFeatures}, render_graph::{RenderPassKind, RenderPassNode}, renderer::Renderable, resource::{BufferHandle, PipelineBuilder, PipelineHandle, PipelineRequestInfo, ResourceData, ResourceId, TextureHandle}, texture}, shader::{BindGroupLayout, BindGroupLayoutBuilder, ShaderBuilder}};
+use crate::{geometry::{GBufferVertex, Vertex}, gfx::{Context, material::{DiffuseResource, MaterialShaderFeatures}, render_graph::{RenderPassContext, RenderPassKind, RenderPassNode}, renderer::Renderable, resource::{BufferHandle, DiffuseColorFeature, DiffuseTextureFeature, PipelineBuilder, PipelineHandle, PipelineRequestInfo, ResourceData, ResourceId, ShaderFeature, TextureHandle}, texture}, shader::{BindGroupLayout, BindGroupLayoutBuilder, ShaderBuilder}};
 
 pub struct WriteGBuffersPassFrameData<'a> {
     pub camera_buffer: &'a wgpu::Buffer,
@@ -161,10 +161,13 @@ impl<'a> RenderPassNode for WriteGBuffersPass {
 
     fn on_resize(&mut self, _context: &Context, _width: u32, _height: u32) {}
 
-    fn execute(&self, encoder: &mut wgpu::CommandEncoder, context: &mut Context) {
-        let normal_texture_view = context.get_texture_view(self.normal_texture_handle).expect("Failed to get normal texture view from context");
-        let albedo_texture_view = context.get_texture_view(self.albedo_texture_handle).expect("Failed to get albedo texture view from context");
-        let depth_texture_view = context.get_texture_view(self.depth_texture_handle).expect("Failed to get depth texture view from context");
+    fn execute(&self, encoder: &mut wgpu::CommandEncoder, context: &mut RenderPassContext) {
+        let normal_texture_view = context.texture_registry.get_view(self.normal_texture_handle).expect("Failed to get normal texture view from context");
+        let albedo_texture_view = context.texture_registry.get_view(self.albedo_texture_handle).expect("Failed to get albedo texture view from context");
+        let depth_texture_view = context.texture_registry.get_view(self.depth_texture_handle).expect("Failed to get depth texture view from context");
+//        let normal_texture_view = context.get_texture_view(self.normal_texture_handle).expect("Failed to get normal texture view from context");
+//        let albedo_texture_view = context.get_texture_view(self.albedo_texture_handle).expect("Failed to get albedo texture view from context");
+//        let depth_texture_view = context.get_texture_view(self.depth_texture_handle).expect("Failed to get depth texture view from context");
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some(self.name),
@@ -224,105 +227,182 @@ impl<'a> RenderPassNode for WriteGBuffersPass {
         
         render_pass.set_bind_group(0, &self.scene_bind_group, &[]);
 
+        let mut bind_group_layouts: Vec<&wgpu::BindGroupLayout> = vec![];
         for renderable in &self.renderables {
             render_pass.set_bind_group(1, &renderable.geometry.bind_group, &[]);
 
-            let features = renderable.material.diffuse.features(context);
-            let _shader = context.get_material(&features, &[GBufferVertex::layout()])
+            let features = renderable.material.diffuse.features(context.shader_registry);
+            let shader = context.shader_registry.get_material(&features, &[GBufferVertex::layout()])
                 .expect("Failed to get shader for material");
+            bind_group_layouts = shader.bind_group_layouts
+                .iter()
+                .map(|l| l)
+                .collect::<Vec<_>>();
 
-            let (pipeline, bind_group) = match renderable.material.diffuse {
-                // Has diffuse texture so we use it
+            let requirements = PipelineRequestInfo {
+                color_targets: self.color_targets.as_slice(),
+                depth_target: Some(self.depth_target.clone()),
+                vertex_module: &shader.vert_module,
+                fragment_module: Some(&shader.frag_module),
+                fragment_entry: Some("fs_main"),
+                vertex_entry: "vs_main",
+                multisample: &self.multisample,
+                topology: self.topology,
+                vertex_layouts: &[GBufferVertex::layout()],
+                bind_group_layouts: &bind_group_layouts.as_slice(),
+            };
+
+            let pipeline = context.pipeline_manager.request_pipeline(context.device, &requirements);
+            let pipeline = context.pipeline_manager.get_pipeline(pipeline)
+                .expect("Failed to get pipeline");
+
+            let bind_group = match &renderable.material.diffuse {
                 DiffuseResource::Texture(texture_handle) => {
-                    let material_texture_view = context.get_texture_view(texture_handle)
+                    let material_texture_view = context.texture_registry.get_view(texture_handle.clone())
                         .expect("Failed to get texture view for material diffuse texture");
-                    let material_sampler = context.get_sampler(texture_handle)
+                    let material_sampler = context.texture_registry.get_sampler(texture_handle.clone())
                         .expect("Failed to get sampler for material diffuse texture");
 
-                    let material_bind_group = self.material_bind_group_layout.create_bind_group(&context.device, &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(material_texture_view)
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(material_sampler)
-                        },
-                    ]);
-                    let requirements = PipelineRequestInfo {
-                        color_targets: self.color_targets.as_slice(),
-                        depth_target: Some(self.depth_target.clone()),
-                        vertex_module: &self.has_texture_shader_module,
-                        fragment_module: Some(&self.has_texture_shader_module),
-                        fragment_entry: Some("fs_main"),
-                        vertex_entry: "vs_main",
-                        multisample: &self.multisample,
-                        topology: self.topology,
-                        vertex_layouts: &[GBufferVertex::layout()],
-                        bind_group_layouts: &has_texture_layouts,
-                    };
+                    let layout = context.device.create_bind_group_layout(&DiffuseTextureFeature::layout_descriptor());
+                    context.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: None,
+                        layout: &layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: wgpu::BindingResource::TextureView(material_texture_view)
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::Sampler(material_sampler)
+                            },
+                        ]
+                    })
 
-                    let pipeline_handle = context.request_pipeline(&requirements);
-                    let pipeline = context.get_pipeline(pipeline_handle)
-                        .expect("Failed to get texture pipeline");
-
-                    (pipeline, material_bind_group)
-                },
-
-                // No diffuse texture use diffuse color
+                }
                 DiffuseResource::Color(buffer_handle) => {
-                    let diffuse_buffer = context.get_buffer(buffer_handle)
-                        .expect("Failed to get renderable diffuse color buffer");
-                    
-                    let bind_group = self.material_no_texture_bind_group_layout.create_bind_group(&context.device, &[
+                    let buffer = context.buffer_registry.get_buffer(buffer_handle.clone())
+                        .expect("Failed to get diffuse color buffer");
+
+                    let layout = context.device.create_bind_group_layout(&DiffuseColorFeature::layout_descriptor());
+                    context.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: None,
+                        layout: &layout,
+                        entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: diffuse_buffer.as_entire_binding(),
+                            resource: buffer.as_entire_binding(),
                         },
-                    ]);
-                    let requirements = PipelineRequestInfo {
-                        color_targets: self.color_targets.as_slice(),
-                        depth_target: Some(self.depth_target.clone()),
-                        vertex_module: &self.no_texture_shader_module,
-                        fragment_module: Some(&self.no_texture_shader_module),
-                        fragment_entry: Some("fs_main"),
-                        vertex_entry: "vs_main",
-                        multisample: &self.multisample,
-                        topology: self.topology,
-                        vertex_layouts: &[GBufferVertex::layout()],
-                        bind_group_layouts: &no_texture_layouts
-                    };
-
-                    let pipeline_handle = context.request_pipeline(&requirements);
-                    let pipeline = context.get_pipeline(pipeline_handle)
-                        .expect("Failed to get texture pipeline");
-                    (pipeline, bind_group)
+                        ]
+                    })
                 }
             };
 
+//            let (pipeline, bind_group) = match renderable.material.diffuse {
+//                // Has diffuse texture so we use it
+//                DiffuseResource::Texture(texture_handle) => {
+//                    let material_texture_view = context.get_texture_view(texture_handle)
+//                        .expect("Failed to get texture view for material diffuse texture");
+//                    let material_sampler = context.get_sampler(texture_handle)
+//                        .expect("Failed to get sampler for material diffuse texture");
+//
+//                    let material_bind_group = self.material_bind_group_layout.create_bind_group(&context.device, &[
+//                        wgpu::BindGroupEntry {
+//                            binding: 0,
+//                            resource: wgpu::BindingResource::TextureView(material_texture_view)
+//                        },
+//                        wgpu::BindGroupEntry {
+//                            binding: 1,
+//                            resource: wgpu::BindingResource::Sampler(material_sampler)
+//                        },
+//                    ]);
+//                    let requirements = PipelineRequestInfo {
+//                        color_targets: self.color_targets.as_slice(),
+//                        depth_target: Some(self.depth_target.clone()),
+//                        vertex_module: &shader.vert_module,
+//                        fragment_module: Some(&shader.frag_module),
+//                        // vertex_module: &self.has_texture_shader_module,
+//                        // fragment_module: Some(&self.has_texture_shader_module),
+//                        fragment_entry: Some("fs_main"),
+//                        vertex_entry: "vs_main",
+//                        multisample: &self.multisample,
+//                        topology: self.topology,
+//                        vertex_layouts: &[GBufferVertex::layout()],
+//                        bind_group_layouts: &has_texture_layouts,
+//                    };
+//
+//                    let pipeline_handle = context.request_pipeline(&requirements);
+//                    let pipeline = context.get_pipeline(pipeline_handle)
+//                        .expect("Failed to get texture pipeline");
+//
+//                    (pipeline, material_bind_group)
+//                },
+//
+//                // No diffuse texture use diffuse color
+//                DiffuseResource::Color(buffer_handle) => {
+//                    let diffuse_buffer = context.get_buffer(buffer_handle)
+//                        .expect("Failed to get renderable diffuse color buffer");
+//                    
+//                    let bind_group = self.material_no_texture_bind_group_layout.create_bind_group(&context.device, &[
+//                        wgpu::BindGroupEntry {
+//                            binding: 0,
+//                            resource: diffuse_buffer.as_entire_binding(),
+//                        },
+//                    ]);
+//                    let requirements = PipelineRequestInfo {
+//                        color_targets: self.color_targets.as_slice(),
+//                        depth_target: Some(self.depth_target.clone()),
+//                        vertex_module: &self.no_texture_shader_module,
+//                        fragment_module: Some(&self.no_texture_shader_module),
+//                        fragment_entry: Some("fs_main"),
+//                        vertex_entry: "vs_main",
+//                        multisample: &self.multisample,
+//                        topology: self.topology,
+//                        vertex_layouts: &[GBufferVertex::layout()],
+//                        bind_group_layouts: &no_texture_layouts
+//                    };
+//
+//                    let pipeline_handle = context.request_pipeline(&requirements);
+//                    let pipeline = context.get_pipeline(pipeline_handle)
+//                        .expect("Failed to get texture pipeline");
+//                    (pipeline, bind_group)
+//                }
+//            };
+
             render_pass.set_pipeline(pipeline);
             render_pass.set_bind_group(2, &bind_group, &[]);
+            // render_pass.set_bind_group(2, &bind_group, &[]);
 
-            match &renderable.geometry.mesh {
-                Some(mesh_id) => {
-                    let mesh = match context.get_resource(&mesh_id).unwrap() {
-                        ResourceData::Mesh(mesh) => mesh,
-                        _ => continue,
-                    };
-                    render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-
-                    match &mesh.index_buffer {
-                        Some(index_buffer) => {
-                            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                            render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
-                        },
-                        None => {
-                            render_pass.draw(0..mesh.vertex_count, 0..1);
-                        },
-                    }
+            render_pass.set_vertex_buffer(0, renderable.geometry.mesh.vertex_buffer.slice(..));
+            match &renderable.geometry.mesh.index_buffer {
+                Some(index_buffer) => {
+                    render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    render_pass.draw_indexed(0..renderable.geometry.mesh.index_count, 0, 0..1);
                 },
-                None => continue,
+                None => {
+                    render_pass.draw(0..renderable.geometry.mesh.vertex_count, 0..1);
+                }
             }
+//            match &renderable.geometry.mesh {
+//                Some(mesh_id) => {
+//                    let mesh = match context.get_resource(&mesh_id).unwrap() {
+//                        ResourceData::Mesh(mesh) => mesh,
+//                        _ => continue,
+//                    };
+//                    render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+//
+//                    match &mesh.index_buffer {
+//                        Some(index_buffer) => {
+//                            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+//                            render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+//                        },
+//                        None => {
+//                            render_pass.draw(0..mesh.vertex_count, 0..1);
+//                        },
+//                    }
+//                },
+//                None => continue,
+//            }
         }
     }
 }
@@ -536,7 +616,7 @@ impl RenderPassNode for LightingPass {
         ]));
     }
 
-    fn execute(&self, encoder: &mut wgpu::CommandEncoder, context: &mut Context) {
+    fn execute(&self, encoder: &mut wgpu::CommandEncoder, context: &mut RenderPassContext) {
         let view = match &self.view {
             Some(view) => view,
             None => {
@@ -545,8 +625,10 @@ impl RenderPassNode for LightingPass {
             }
         };
 
-        let depth_texture_view = context.get_texture_view(self.gbuffer_depth_texture_handle)
+        let depth_texture_view = context.texture_registry.get_view(self.gbuffer_depth_texture_handle)
             .expect("Failed to get depth texture view in lighting pass");
+//        let depth_texture_view = context.get_texture_view(self.gbuffer_depth_texture_handle)
+//            .expect("Failed to get depth texture view in lighting pass");
         
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some(format!("{}_render_pass", self.name).as_str()),
@@ -588,9 +670,9 @@ impl RenderPassNode for LightingPass {
         };
 
         // TODO: do not do this every frame :/
-        let lights_uniform = context.get_buffer(self.lights_uniform_buffer_handle)
+        let lights_uniform = context.buffer_registry.get_buffer(self.lights_uniform_buffer_handle)
             .expect("Failed to get lights uniform buffer");
-        let lights_storage = context.get_buffer(self.lights_storage_buffer_handle)
+        let lights_storage = context.buffer_registry.get_buffer(self.lights_storage_buffer_handle)
             .expect("Failed to get lights storage buffer");
         let lights_bind_group = self.lights_bind_group_layout.create_bind_group(&context.device, &[
             wgpu::BindGroupEntry {
@@ -733,14 +815,15 @@ impl RenderPassNode for DebugGridPass {
         
     }
 
-    fn execute(&self, encoder: &mut wgpu::CommandEncoder, context: &mut Context) {
+    fn execute(&self, encoder: &mut wgpu::CommandEncoder, context: &mut RenderPassContext) {
         let view = match &self.view {
             Some(view) => view,
             None => return,
         };
-        
-        let depth_texture_view = context.get_texture_view(self.depth_texture_handle)
+        let depth_texture_view = context.texture_registry.get_view(self.depth_texture_handle)
             .expect("Failed to get depth texture view in debug grid pass");
+//        let depth_texture_view = context.get_texture_view(self.depth_texture_handle)
+//            .expect("Failed to get depth texture view in debug grid pass");
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some(format!("{}_render_pass", self.name).as_str()),
@@ -968,14 +1051,15 @@ impl RenderPassNode for AlphaRenderPass {
         
     }
 
-    fn execute(&self, encoder: &mut wgpu::CommandEncoder, context: &mut Context) {
+    fn execute(&self, encoder: &mut wgpu::CommandEncoder, context: &mut RenderPassContext) {
         let view = match &self.view {
             Some(view) => view,
             None => return,
         };
-        
-        let depth_texture_view = context.get_texture_view(self.depth_texture_handle)
+        let depth_texture_view = context.texture_registry.get_view(self.depth_texture_handle)
             .expect("Failed to get depth texture view in debug grid pass");
+//        let depth_texture_view = context.get_texture_view(self.depth_texture_handle)
+//            .expect("Failed to get depth texture view in debug grid pass");
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some(format!("{}_render_pass", self.name).as_str()),
@@ -1008,9 +1092,9 @@ impl RenderPassNode for AlphaRenderPass {
         render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
         // render_pass.set_pipeline(&self.pipeline);
         
-        let lights_uniform = context.get_buffer(self.lights_uniform_buffer_handle)
+        let lights_uniform = context.buffer_registry.get_buffer(self.lights_uniform_buffer_handle)
             .expect("Failed to get lights uniform buffer");
-        let lights_storage = context.get_buffer(self.lights_storage_buffer_handle)
+        let lights_storage = context.buffer_registry.get_buffer(self.lights_storage_buffer_handle)
             .expect("Failed to get lights storage buffer");
         let lights_bind_group = self.lights_bind_group_layout.create_bind_group(&context.device, &[
             wgpu::BindGroupEntry {
@@ -1029,11 +1113,11 @@ impl RenderPassNode for AlphaRenderPass {
 
             let (pipeline, bind_group) = match renderable.material.diffuse {
                 DiffuseResource::Texture(texture_handle) => {
-                    let material_texture_view = context.get_texture_view(texture_handle)
+                    let material_texture_view = context.texture_registry.get_view(texture_handle)
                         .expect("Failed to get texture view for material diffuse texture");
-                    let material_sampler = context.get_sampler(texture_handle)
+                    let material_sampler = context.texture_registry.get_sampler(texture_handle)
                         .expect("Failed to get sampler for material diffuse texture");
-                    let dissolve_buffer = context.get_buffer(renderable.material.dissolve.unwrap())
+                    let dissolve_buffer = context.buffer_registry.get_buffer(renderable.material.dissolve.unwrap())
                         .expect("Failed to get dissolve buffer for alpha-based renderable");
 
                     let material_bind_group = self.material_bind_group_layout.create_bind_group(&context.device, &[
@@ -1054,9 +1138,9 @@ impl RenderPassNode for AlphaRenderPass {
                     (&self.has_texture_pipeline, material_bind_group)
                 },
                 DiffuseResource::Color(buffer_handle) => {
-                    let diffuse_buffer = context.get_buffer(buffer_handle)
+                    let diffuse_buffer = context.buffer_registry.get_buffer(buffer_handle)
                         .expect("Failed to get diffuse buffer for renderable in alpha renderpass");
-                    let dissolve_buffer = context.get_buffer(renderable.material.dissolve.unwrap())
+                    let dissolve_buffer = context.buffer_registry.get_buffer(renderable.material.dissolve.unwrap())
                         .expect("Failed to get dissolve buffer for alpha-based renderable");
                     let material_bind_group = self.no_texture_material_bind_group_layout.create_bind_group(&context.device, &[
                         wgpu::BindGroupEntry {
@@ -1075,27 +1159,38 @@ impl RenderPassNode for AlphaRenderPass {
             
             render_pass.set_pipeline(pipeline);
             render_pass.set_bind_group(2, &bind_group, &[]);
-            
-            match &renderable.geometry.mesh {
-                Some(mesh_id) => {
-                    let mesh = match context.get_resource(&mesh_id).unwrap() {
-                        ResourceData::Mesh(mesh) => mesh,
-                        _ => continue,
-                    };
-                    render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
 
-                    match &mesh.index_buffer {
-                        Some(index_buffer) => {
-                            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                            render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
-                        },
-                        None => {
-                            render_pass.draw(0..mesh.vertex_count, 0..1);
-                        },
-                    }
+            render_pass.set_vertex_buffer(0, renderable.geometry.mesh.vertex_buffer.slice(..));
+            match &renderable.geometry.mesh.index_buffer {
+                Some(index_buffer) => {
+                    render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    render_pass.draw_indexed(0..renderable.geometry.mesh.index_count, 0, 0..1);
                 },
-                None => continue,
+                None => {
+                    render_pass.draw(0..renderable.geometry.mesh.vertex_count, 0..1);
+                }
             }
+            
+//            match &renderable.geometry.mesh {
+//                Some(mesh_id) => {
+//                    let mesh = match context.get_resource(&mesh_id).unwrap() {
+//                        ResourceData::Mesh(mesh) => mesh,
+//                        _ => continue,
+//                    };
+//                    render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+//
+//                    match &mesh.index_buffer {
+//                        Some(index_buffer) => {
+//                            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+//                            render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+//                        },
+//                        None => {
+//                            render_pass.draw(0..mesh.vertex_count, 0..1);
+//                        },
+//                    }
+//                },
+//                None => continue,
+//            }
         }
     }
 }

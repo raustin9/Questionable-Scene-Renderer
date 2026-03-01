@@ -1,7 +1,6 @@
-
 use std::fs;
 
-use crate::gfx::{Context, resource::{self, BufferHandle, CameraInfoFeature, DiffuseColorFeature, DiffuseTextureFeature, SamplerRepeat, ShaderFeatureId, TextureHandle, TransformFeature}};
+use crate::gfx::{Context, resource::{self, BufferHandle, CameraInfoFeature, DiffuseColorFeature, DiffuseTextureFeature, SamplerRepeat, ShaderFeatureId, ShaderRegistry, TextureHandle, TransformFeature}};
 
 #[derive(Debug)]
 pub struct MaterialInfo {
@@ -24,7 +23,7 @@ pub struct MaterialInfo {
 }
 
 pub trait MaterialShaderFeatures {
-    fn features(&self, context: &Context) -> Vec<ShaderFeatureId>;
+    fn features(&self, registry: &ShaderRegistry) -> Vec<ShaderFeatureId>;
 }
 
 pub enum DiffuseResource {
@@ -33,14 +32,14 @@ pub enum DiffuseResource {
 }
 
 impl MaterialShaderFeatures for DiffuseResource {
-    fn features(&self, context: &Context) -> Vec<ShaderFeatureId> {
-        let transform_feature = context.get_shader_feature_id::<TransformFeature>()
+    fn features(&self, registry: &ShaderRegistry) -> Vec<ShaderFeatureId> {
+        let transform_feature = registry.get_feature_id::<TransformFeature>()
             .expect("Transform feature not registered");
-        let dissolve_texture_feature = context.get_shader_feature_id::<DiffuseTextureFeature>()
+        let dissolve_texture_feature = registry.get_feature_id::<DiffuseTextureFeature>()
             .expect("Diffuse texture feature not registered");
-        let dissolve_color_feature = context.get_shader_feature_id::<DiffuseColorFeature>()
+        let dissolve_color_feature = registry.get_feature_id::<DiffuseColorFeature>()
             .expect("Diffuse color feature not registered");
-        let camera_feature = context.get_shader_feature_id::<CameraInfoFeature>()
+        let camera_feature = registry.get_feature_id::<CameraInfoFeature>()
             .expect("Camera feature not registered");
 
         match self {

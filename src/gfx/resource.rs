@@ -820,6 +820,7 @@ pub enum ShaderKey {
 }
 
 pub struct ShaderResource {
+    pub name: &'static str,
     pub vert_module: wgpu::ShaderModule,
     pub frag_module: wgpu::ShaderModule,
     pub bind_group_layouts: Vec<wgpu::BindGroupLayout>,
@@ -864,7 +865,12 @@ impl ShaderRegistry {
             .collect::<Vec<_>>();
 
         let key = ShaderKey::Global { features };
-        self.shaders.insert(key, ShaderResource { vert_module: module.clone(), frag_module: module, bind_group_layouts });
+        self.shaders.insert(key, ShaderResource { 
+            name, 
+            vert_module: module.clone(), 
+            frag_module: module, 
+            bind_group_layouts 
+        });
     }
 
     pub fn add_material(
@@ -890,7 +896,12 @@ impl ShaderRegistry {
             vertex_layouts: vertex_layouts.iter().map(|vl| vl.clone()).collect::<Vec<_>>()
         };
 
-        self.shaders.insert(key, ShaderResource { vert_module: module.clone(), frag_module: module, bind_group_layouts });
+        self.shaders.insert(key, ShaderResource { 
+            name, 
+            vert_module: module.clone(), 
+            frag_module: module, 
+            bind_group_layouts 
+        });
     }
 
     pub fn get_material(

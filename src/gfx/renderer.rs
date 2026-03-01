@@ -1,5 +1,6 @@
 use cgmath::{Matrix4, prelude::*};
-use crate::{LightNode, RotationUnit, Scene, Transform, camera::{Camera, CameraController, CameraUniform}, gfx::{Context, FrameResource, builtin::{self, LightPropertiesUniform, LightingPassFrameData, WriteGBuffersPassFrameData}, material::Material, render_graph::RenderPassNode, resource::{self, BufferHandle, CameraInfoFeature, ResourceData, ResourceId, ShaderFeatureId, TextureHandle}}, shader::BindGroupLayoutBuilder};
+use wgpu::util::DeviceExt;
+use crate::{LightNode, RotationUnit, Scene, Transform, camera::{Camera, CameraController, CameraUniform}, geometry::Mesh, gfx::{Context, FrameResource, builtin::{self, LightPropertiesUniform, LightingPassFrameData, WriteGBuffersPassFrameData}, material::Material, render_graph::{RenderPassContext, RenderPassNode}, resource::{self, BufferHandle, CameraInfoFeature, ResourceData, ResourceId, ShaderFeatureId, TextureHandle}}, shader::BindGroupLayoutBuilder};
 
 pub trait Renderer<'a> {
     fn new(scene: &'a Scene<'a>, context: &mut Context) -> Self;
@@ -159,7 +160,7 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
         self.debug_grid_pass.on_resize(context, width, height);
     }
 
-    fn render(&mut self, mut context: &mut Context, frame_resource: &mut FrameResource) {
+    fn render(&mut self, context: &mut Context, frame_resource: &mut FrameResource) {
         let mut encoder = &mut frame_resource.encoder;
         let camera_buffer = context.get_buffer(self.camera_buffer_handle)
             .expect("Failed to get camera buffer");
@@ -167,18 +168,42 @@ impl<'a> Renderer<'a> for DeferredRenderer<'a> {
         self.write_gbuffers_pass.set_frame_data(context, &WriteGBuffersPassFrameData {
             camera_buffer: &camera_buffer,
         });
-        self.write_gbuffers_pass.execute(&mut encoder, &mut context);
+        self.write_gbuffers_pass.execute(&mut encoder, &mut RenderPassContext {
+            device: &context.device,
+            buffer_registry: &context.buffer_registry,
+            texture_registry: &context.texture_registry,
+            shader_registry: &context.shader_registry,
+            pipeline_manager: &mut context.pipeline_manager,
+        });
 
         self.debug_grid_pass.update_frame_data(frame_resource.output_view.clone());
-        self.debug_grid_pass.execute(&mut encoder, &mut context);
+        self.debug_grid_pass.execute(&mut encoder, &mut RenderPassContext {
+            device: &context.device,
+            buffer_registry: &context.buffer_registry,
+            texture_registry: &context.texture_registry,
+            shader_registry: &context.shader_registry,
+            pipeline_manager: &mut context.pipeline_manager,
+        });
 
         self.lighting_pass.update_frame_data(context, &LightingPassFrameData {
             view: &frame_resource.output_view,
         });
-        self.lighting_pass.execute(&mut encoder, &mut context);
+        self.lighting_pass.execute(&mut encoder, &mut RenderPassContext {
+            device: &context.device,
+            buffer_registry: &context.buffer_registry,
+            texture_registry: &context.texture_registry,
+            shader_registry: &context.shader_registry,
+            pipeline_manager: &mut context.pipeline_manager,
+        });
 
         self.alpha_forward_pass.update_frame_data(frame_resource.output_view.clone());
-        self.alpha_forward_pass.execute(&mut encoder, &mut context);
+        self.alpha_forward_pass.execute(&mut encoder, &mut RenderPassContext {
+            device: &context.device,
+            buffer_registry: &context.buffer_registry,
+            texture_registry: &context.texture_registry,
+            shader_registry: &context.shader_registry,
+            pipeline_manager: &mut context.pipeline_manager,
+        });
     }
 }
 
@@ -190,7 +215,8 @@ struct RenderableGeometryUniform {
 }
 
 pub struct RenderableGeometry {
-    pub mesh: Option<ResourceId>,
+    pub mesh: Mesh,
+    // pub mesh: Option<ResourceId>,
     pub uniform_handle: BufferHandle,
     pub bind_group: wgpu::BindGroup,
 }
@@ -229,15 +255,35 @@ impl<'a> RenderData {
             match &node.objs {
                 Some(models) => {
                     for model in models {
-                        let mesh_handle = context.create_mesh(
-                            model.mesh.name.as_str(), 
-                            model.mesh.vertices.len() as u32, 
-                            bytemuck::cast_slice(model.mesh.vertices.as_slice()), 
-                            match &model.mesh.indices {
-                                None => None,
-                                Some(indices) => Some(indices.as_slice())
-                            }
+                        let vertex_buffer = context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("vertex_buffer"),
+                            contents: bytemuck::cast_slice(model.mesh.vertices.as_slice()),
+                            usage: wgpu::BufferUsages::VERTEX
+                        });
+                        let vertex_count = model.mesh.vertices.len() as u32;
+                        let (index_buffer, index_count) = match &model.mesh.indices {
+                            Some(indices) => (Some(context.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("index_buffer"),
+                                contents: bytemuck::cast_slice(indices.as_slice()),
+                                usage: wgpu::BufferUsages::INDEX
+                            })), indices.len() as u32),
+                            None => (None, 0),
+                        };
+                        let mesh = Mesh::new(
+                            vertex_buffer, 
+                            vertex_count, 
+                            index_buffer.clone(),
+                            index_count.clone()
                         );
+//                        let mesh_handle = context.create_mesh(
+//                            model.mesh.name.as_str(), 
+//                            model.mesh.vertices.len() as u32, 
+//                            bytemuck::cast_slice(model.mesh.vertices.as_slice()), 
+//                            match &model.mesh.indices {
+//                                None => None,
+//                                Some(indices) => Some(indices.as_slice())
+//                            }
+//                        );
 
                         // Form the model matrix
                         let mut model_matrix = cgmath::Matrix4::<f32>::identity();
@@ -301,7 +347,8 @@ impl<'a> RenderData {
                         ]);
 
                         let geometry = RenderableGeometry {
-                            mesh: Some(mesh_handle),
+                            mesh,
+                            // mesh: Some(mesh_handle),
                             uniform_handle,
                             bind_group: geometry_bind_group,
                         };
