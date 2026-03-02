@@ -11,7 +11,7 @@ pub mod resource;
 pub mod builtin;
 pub mod material;
 
-use crate::{geometry::{GBufferVertex, Mesh, Vertex}, gfx::resource::{BufferHandle, BufferRegistry, CameraInfoFeature, DiffuseColorFeature, DiffuseTextureFeature, PipelineHandle, PipelineManager, PipelineRequestInfo, ResourceData, ResourceId, SamplerDescriptor, ShaderFeature, ShaderFeatureId, ShaderFeatureRegistry, ShaderRegistry, ShaderResource, TextureHandle, TextureRegistry, TransformFeature}, shader::UniformBuffer};
+use crate::{geometry::{GBufferVertex, Mesh, Vertex}, gfx::resource::{BufferHandle, BufferRegistry, CameraInfoFeature, DiffuseColorFeature, DiffuseTextureFeature, GBufferTexturesFeature, LightsDataFeature, PipelineHandle, PipelineManager, PipelineRequestInfo, ResourceData, ResourceId, SamplerDescriptor, ShaderFeature, ShaderFeatureId, ShaderFeatureRegistry, ShaderRegistry, ShaderResource, TextureHandle, TextureRegistry, TransformFeature, TransparentMaterialFeatureDC, TransparentMaterialFeatureDT}, shader::UniformBuffer};
 
 pub struct Context {
     device: wgpu::Device,
@@ -86,6 +86,10 @@ impl<'a> Context {
         let transform_feature = shader_features.register::<TransformFeature>(&device);
         let diffuse_texture_feature = shader_features.register::<DiffuseTextureFeature>(&device);
         let diffuse_color_feature = shader_features.register::<DiffuseColorFeature>(&device);
+        let gbuffer_textures_feature = shader_features.register::<GBufferTexturesFeature>(&device);
+        let lights_data_feature = shader_features.register::<LightsDataFeature>(&device);
+        let transparent_material_dt_feature = shader_features.register::<TransparentMaterialFeatureDT>(&device);
+        let transparent_material_dc_feature = shader_features.register::<TransparentMaterialFeatureDC>(&device);
 
         let mut shader_registry = ShaderRegistry::new(shader_features);
         shader_registry.add_material(
@@ -100,6 +104,28 @@ impl<'a> Context {
             "write_gbuffers_dc", 
             wgpu::ShaderSource::Wgsl(include_str!("../../shaders/common/no-texture-write-gbuffers.wgsl").into()), 
             vec![camera_feature, transform_feature, diffuse_color_feature], 
+            &[GBufferVertex::layout()]
+        );
+
+        shader_registry.add_global(
+            &device, 
+            "lighting", 
+            wgpu::ShaderSource::Wgsl(include_str!("../../shaders/common/deferred.wgsl").into()), 
+            vec![gbuffer_textures_feature, camera_feature, lights_data_feature]
+        );
+
+        shader_registry.add_material(
+            &device, 
+            "alpha_dt", 
+            wgpu::ShaderSource::Wgsl(include_str!("../../shaders/common/alpha.wgsl").into()), 
+            vec![camera_feature, transform_feature, transparent_material_dt_feature, lights_data_feature], 
+            &[GBufferVertex::layout()]
+        );
+        shader_registry.add_material(
+            &device, 
+            "alpha_dc", 
+            wgpu::ShaderSource::Wgsl(include_str!("../../shaders/common/no-texture-alpha.wgsl").into()), 
+            vec![camera_feature, transform_feature, transparent_material_dc_feature, lights_data_feature], 
             &[GBufferVertex::layout()]
         );
 
