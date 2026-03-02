@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash::{DefaultHasher, Hash, Hasher}, num::NonZero};
+use std::{any::{Any, TypeId}, borrow::Cow, collections::HashMap, hash::{DefaultHasher, Hash, Hasher}, num::NonZero};
 
 use wgpu::util::DeviceExt;
 
@@ -622,5 +622,456 @@ impl<'a> PipelineBuilder<'a> {
     pub fn set_vertex_layouts(&mut self, layouts: &'a [wgpu::VertexBufferLayout<'a>]) -> &mut Self {
         self.vertex_buffers = layouts;
         self
+    }
+}
+
+#[derive(Hash, Eq, PartialEq, Clone, Copy, Debug)]
+pub struct ShaderFeatureId(u64);
+
+pub trait ShaderFeature: Send + Sync + 'static {
+    /// The layout descriptor for this feature
+    fn layout_descriptor() -> wgpu::BindGroupLayoutDescriptor<'static>;
+}
+
+pub struct CameraInfoFeature;
+impl ShaderFeature for CameraInfoFeature {
+    fn layout_descriptor() -> wgpu::BindGroupLayoutDescriptor<'static> {
+        wgpu::BindGroupLayoutDescriptor {
+            label: Some("camera_info_layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }
+            ]
+        }
+    }
+}
+
+pub struct LightsDataFeature;
+impl ShaderFeature for LightsDataFeature {
+    fn layout_descriptor() -> wgpu::BindGroupLayoutDescriptor<'static> {
+        wgpu::BindGroupLayoutDescriptor {
+            label: Some("lights_info_layout"),
+            entries: &[
+                // num_lights
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ]
+        }
+    }
+}
+
+pub struct GBufferTexturesFeature;
+impl ShaderFeature for GBufferTexturesFeature {
+    fn layout_descriptor() -> wgpu::BindGroupLayoutDescriptor<'static> {
+        wgpu::BindGroupLayoutDescriptor {
+            label: Some("gbuffer_textures_layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false
+                    },
+                    count: None,
+                },
+            ]
+        }
+    }
+}
+
+pub struct TransformFeature;
+impl ShaderFeature for TransformFeature {
+    fn layout_descriptor() -> wgpu::BindGroupLayoutDescriptor<'static> {
+        wgpu::BindGroupLayoutDescriptor {
+            label: Some("transform_layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }
+            ]
+        }
+    }
+}
+
+pub struct TransparentMaterialFeatureDC;
+impl ShaderFeature for TransparentMaterialFeatureDC {
+    fn layout_descriptor() -> wgpu::BindGroupLayoutDescriptor<'static> {
+        wgpu::BindGroupLayoutDescriptor {
+            label: Some("diffuse_texture_layout"),
+            entries: &[
+                // Diffuse color
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // Dissolve
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }
+            ]
+        }
+    }
+}
+
+pub struct TransparentMaterialFeatureDT;
+impl ShaderFeature for TransparentMaterialFeatureDT {
+    fn layout_descriptor() -> wgpu::BindGroupLayoutDescriptor<'static> {
+        wgpu::BindGroupLayoutDescriptor {
+            label: Some("diffuse_texture_layout"),
+            entries: &[
+                // Texture
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture { 
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true }, 
+                        view_dimension: wgpu::TextureViewDimension::D2, 
+                        multisampled: false 
+                    },
+                    count: None,
+                },
+                // Sampler
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None
+                },
+                // Dissolve
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }
+            ]
+        }
+    }
+}
+
+pub struct DiffuseTextureFeature;
+impl ShaderFeature for DiffuseTextureFeature {
+    fn layout_descriptor() -> wgpu::BindGroupLayoutDescriptor<'static> {
+        wgpu::BindGroupLayoutDescriptor {
+            label: Some("diffuse_texture_layout"),
+            entries: &[
+                // Texture
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture { 
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true }, 
+                        view_dimension: wgpu::TextureViewDimension::D2, 
+                        multisampled: false 
+                    },
+                    count: None,
+                },
+                // Sampler
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None
+                },
+            ]
+        }
+    }
+}
+
+pub struct DiffuseColorFeature;
+impl ShaderFeature for DiffuseColorFeature {
+    fn layout_descriptor() -> wgpu::BindGroupLayoutDescriptor<'static> {
+        wgpu::BindGroupLayoutDescriptor {
+            label: Some("diffuse_color_layout"),
+            entries: &[
+                // Diffuse color
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }
+            ]
+        }
+    }
+}
+
+pub struct ShaderFeatureEntry {
+    pub id: ShaderFeatureId,
+    pub layout: wgpu::BindGroupLayout,
+}
+
+pub struct ShaderFeatureRegistry {
+    id_types: HashMap<TypeId, ShaderFeatureId>,
+    entries: Vec<ShaderFeatureEntry>,
+}
+
+impl ShaderFeatureRegistry {
+    pub fn new() -> Self {
+        Self {
+            id_types: HashMap::new(),
+            entries: Vec::new(),
+        }
+    }
+
+    pub fn register<F: ShaderFeature>(&mut self, device: &wgpu::Device) -> ShaderFeatureId {
+        let type_id = TypeId::of::<F>();
+        if let Some(&id) = self.id_types.get(&type_id) {
+            return id;
+        }
+
+        let id = ShaderFeatureId(self.entries.len() as u64);
+        let layout = device.create_bind_group_layout(&F::layout_descriptor());
+
+        self.id_types.insert(type_id, id);
+        self.entries.push(ShaderFeatureEntry {
+            id,
+            layout,
+        });
+
+        id
+    }
+
+    pub fn get_entry_from_id(&self, id: ShaderFeatureId) -> &ShaderFeatureEntry {
+        &self.entries[id.0 as usize]
+    }
+
+    pub fn feature_id<F: ShaderFeature>(&self) -> Option<ShaderFeatureId> {
+        self.id_types.get(&TypeId::of::<F>()).copied()
+    }
+
+    pub fn get_entry<F: ShaderFeature>(&self) -> Option<&ShaderFeatureEntry> {
+        match self.feature_id::<F>() {
+            Some(id) => Some(&self.entries[id.0 as usize]),
+            None => None
+        }
+    }
+}
+
+pub struct ShaderFeatureSet<'a> {
+    feature_registry: &'a ShaderFeatureRegistry,
+    feature_ids: Vec<ShaderFeatureId>
+}
+
+impl<'a> ShaderFeatureSet<'a> {
+    pub fn new(feature_registry: &'a ShaderFeatureRegistry) -> Self {
+        Self {
+            feature_registry,
+            feature_ids: Vec::new()
+        }
+    }
+
+    pub fn include<F: ShaderFeature>(&mut self) -> &mut Self {
+        let id = self.feature_registry.feature_id::<F>()
+            .expect("Attempting to find id for feature that is not registered");
+        self.feature_ids.push(id);
+        self
+    }
+
+    pub fn finish(&self) -> Vec<ShaderFeatureId> {
+        self.feature_ids.clone()
+    }
+}
+
+impl<'a> Hash for ShaderFeatureSet<'a> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.feature_ids.hash(state);
+    }
+}
+
+#[derive(Eq, PartialEq, Hash)]
+pub enum ShaderKey {
+    Material {
+        features: Vec<ShaderFeatureId>,
+        vertex_layouts: Vec<wgpu::VertexBufferLayout<'static>>,
+    },
+    Global {
+        features: Vec<ShaderFeatureId>
+    }
+}
+
+pub struct ShaderResource {
+    pub name: &'static str,
+    pub vert_module: wgpu::ShaderModule,
+    pub frag_module: wgpu::ShaderModule,
+    pub bind_group_layouts: Vec<wgpu::BindGroupLayout>,
+}
+
+pub struct ShaderRegistry {
+    features: ShaderFeatureRegistry,
+    shaders: HashMap<ShaderKey, ShaderResource>
+}
+
+impl ShaderRegistry {
+    pub fn new(features: ShaderFeatureRegistry) -> Self {
+        Self {
+            features,
+            shaders: HashMap::new()
+        }
+    }
+
+    pub fn get_feature<F: ShaderFeature>(&self) -> Option<&ShaderFeatureEntry> {
+        self.features.get_entry::<F>()
+    }
+
+    pub fn get_feature_id<F: ShaderFeature>(&self) -> Option<ShaderFeatureId> {
+        self.features.feature_id::<F>()
+    }
+
+    pub fn add_global(
+        &mut self,
+        device: &wgpu::Device,
+        name: &'static str,
+        source: wgpu::ShaderSource,
+        features: Vec<ShaderFeatureId>,
+    ) {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(name),
+            source,
+        });
+        
+        let bind_group_layouts = features
+            .iter()
+            .map(|id| self.features.get_entry_from_id(*id).layout.clone())
+            .collect::<Vec<_>>();
+
+        let key = ShaderKey::Global { features };
+        self.shaders.insert(key, ShaderResource { 
+            name, 
+            vert_module: module.clone(), 
+            frag_module: module, 
+            bind_group_layouts 
+        });
+    }
+
+    pub fn add_material(
+        &mut self,
+        device: &wgpu::Device,
+        name: &'static str,
+        source: wgpu::ShaderSource,
+        features: Vec<ShaderFeatureId>,
+        vertex_layouts: &[wgpu::VertexBufferLayout<'static>]
+    ) {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(name),
+            source,
+        });
+        
+        let bind_group_layouts = features
+            .iter()
+            .map(|id| self.features.get_entry_from_id(*id).layout.clone())
+            .collect::<Vec<_>>();
+
+        let key = ShaderKey::Material { 
+            features, 
+            vertex_layouts: vertex_layouts.iter().map(|vl| vl.clone()).collect::<Vec<_>>()
+        };
+
+        self.shaders.insert(key, ShaderResource { 
+            name, 
+            vert_module: module.clone(), 
+            frag_module: module, 
+            bind_group_layouts 
+        });
+    }
+
+    pub fn get_material(
+        &self, 
+        features: &[ShaderFeatureId],
+        vertex_layouts: &[wgpu::VertexBufferLayout<'static>]
+    ) -> Option<&ShaderResource> {
+        let key = ShaderKey::Material {
+            vertex_layouts: vertex_layouts.iter().map(|v| v.clone()).collect::<Vec<_>>(),
+            features: features.iter().map(|f| f.clone()).collect::<Vec<_>>()
+        };
+        
+        self.shaders.get(&key)
+    }
+
+    pub fn get_global(
+        &self,
+        features: &[ShaderFeatureId]
+    ) -> Option<&ShaderResource> {
+        let key = ShaderKey::Global { 
+            features: features.iter().map(|f| f.clone()).collect::<Vec<_>>()  
+        };
+
+        self.shaders.get(&key)
     }
 }

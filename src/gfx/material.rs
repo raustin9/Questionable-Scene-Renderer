@@ -1,7 +1,6 @@
-
 use std::fs;
 
-use crate::gfx::{Context, resource::{self, BufferHandle, SamplerRepeat, TextureHandle}};
+use crate::gfx::{Context, resource::{self, BufferHandle, CameraInfoFeature, DiffuseColorFeature, DiffuseTextureFeature, LightsDataFeature, SamplerRepeat, ShaderFeatureId, ShaderRegistry, TextureHandle, TransformFeature, TransparentMaterialFeatureDC, TransparentMaterialFeatureDT}};
 
 #[derive(Debug)]
 pub struct MaterialInfo {
@@ -23,9 +22,41 @@ pub struct MaterialInfo {
     pub dissolve_coef: Option<f32>,
 }
 
+pub trait MaterialShaderFeatures {
+    fn features(&self, registry: &ShaderRegistry) -> Vec<ShaderFeatureId>;
+}
+
 pub enum DiffuseResource {
     Texture(TextureHandle),
     Color(BufferHandle)
+}
+
+impl MaterialShaderFeatures for DiffuseResource {
+    fn features(&self, registry: &ShaderRegistry) -> Vec<ShaderFeatureId> {
+        let transform_feature = registry.get_feature_id::<TransformFeature>()
+            .expect("Transform feature not registered");
+        let dissolve_texture_feature = registry.get_feature_id::<DiffuseTextureFeature>()
+            .expect("Diffuse texture feature not registered");
+        let dissolve_color_feature = registry.get_feature_id::<DiffuseColorFeature>()
+            .expect("Diffuse color feature not registered");
+        let camera_feature = registry.get_feature_id::<CameraInfoFeature>()
+            .expect("Camera feature not registered");
+
+        match self {
+            Self::Color(_) => 
+                vec![
+                    camera_feature,
+                    transform_feature,
+                    dissolve_color_feature,
+                ],
+            Self::Texture(_) =>
+                vec![
+                    camera_feature,
+                    transform_feature,
+                    dissolve_texture_feature,
+                ],
+        }
+    }
 }
 
 pub struct Material {
@@ -36,6 +67,62 @@ pub struct Material {
     pub diffuse: DiffuseResource,
 
     pub dissolve: Option<BufferHandle>,
+}
+
+impl MaterialShaderFeatures for Material {
+    fn features(&self, registry: &ShaderRegistry) -> Vec<ShaderFeatureId> {
+        let transform_feature = registry.get_feature_id::<TransformFeature>()
+            .expect("Transform feature not registered");
+        let diffuse_texture_feature = registry.get_feature_id::<DiffuseTextureFeature>()
+            .expect("Diffuse texture feature not registered");
+        let diffuse_color_feature = registry.get_feature_id::<DiffuseColorFeature>()
+            .expect("Diffuse color feature not registered");
+        let camera_feature = registry.get_feature_id::<CameraInfoFeature>()
+            .expect("Camera feature not registered");
+        let transparent_mat_dt = registry.get_feature_id::<TransparentMaterialFeatureDT>()
+            .expect("Transparent material diffuse texture feature not registered");
+        let transparent_mat_dc = registry.get_feature_id::<TransparentMaterialFeatureDC>()
+            .expect("Transparent material diffuse color feature not registered");
+        let lights_data_feature = registry.get_feature_id::<LightsDataFeature>()
+            .expect("Lights data feature not registered");
+
+        match self.dissolve {
+            None => {
+                match self.diffuse {
+                    DiffuseResource::Color(_) => 
+                        vec![
+                            camera_feature,
+                            transform_feature,
+                            diffuse_color_feature,
+                        ],
+                    DiffuseResource::Texture(_) =>
+                        vec![
+                            camera_feature,
+                            transform_feature,
+                            diffuse_texture_feature,
+                        ],
+                }
+            },
+            Some(_) => {
+                match self.diffuse {
+                    DiffuseResource::Color(_) => 
+                        vec![
+                            camera_feature,
+                            transform_feature,
+                            transparent_mat_dc,
+                            lights_data_feature,
+                        ],
+                    DiffuseResource::Texture(_) =>
+                        vec![
+                            camera_feature,
+                            transform_feature,
+                            transparent_mat_dt,
+                            lights_data_feature,
+                        ],
+                }
+            }
+        }
+    }
 }
 
 impl Material {

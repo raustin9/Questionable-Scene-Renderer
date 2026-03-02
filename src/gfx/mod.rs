@@ -11,7 +11,7 @@ pub mod resource;
 pub mod builtin;
 pub mod material;
 
-use crate::{geometry::Mesh, gfx::resource::{BufferHandle, BufferRegistry, PipelineHandle, PipelineManager, PipelineRequestInfo, ResourceData, ResourceId, SamplerDescriptor, TextureHandle, TextureRegistry}, shader::UniformBuffer};
+use crate::{geometry::{GBufferVertex, Mesh, Vertex}, gfx::resource::{BufferHandle, BufferRegistry, CameraInfoFeature, DiffuseColorFeature, DiffuseTextureFeature, GBufferTexturesFeature, LightsDataFeature, PipelineHandle, PipelineManager, PipelineRequestInfo, ResourceData, ResourceId, SamplerDescriptor, ShaderFeature, ShaderFeatureId, ShaderFeatureRegistry, ShaderRegistry, ShaderResource, TextureHandle, TextureRegistry, TransformFeature, TransparentMaterialFeatureDC, TransparentMaterialFeatureDT}, shader::UniformBuffer};
 
 pub struct Context {
     device: wgpu::Device,
@@ -23,7 +23,8 @@ pub struct Context {
     resources: HashMap<ResourceId, ResourceData>,
     texture_registry: TextureRegistry,
     buffer_registry: BufferRegistry,
-    pipeline_manager: PipelineManager,
+    pub pipeline_manager: PipelineManager,
+    pub shader_registry: ShaderRegistry,
 }
 
 pub struct FrameResource {
@@ -31,6 +32,14 @@ pub struct FrameResource {
     output_view: wgpu::TextureView,
     output: wgpu::SurfaceTexture,
     // camera_buffer: wgpu::Buffer,
+}
+
+/// Contains the available feature id's for the shaders used by materials.
+pub struct MaterialShaderFeatures {
+    pub camera: ShaderFeatureId,
+    pub transform: ShaderFeatureId,
+    pub diffuse_texture: ShaderFeatureId,
+    pub diffuse_color: ShaderFeatureId,
 }
 
 #[rustfmt::skip]
@@ -72,6 +81,54 @@ impl<'a> Context {
             desired_maximum_frame_latency: 2,
         };
 
+        let mut shader_features = ShaderFeatureRegistry::new();
+        let camera_feature = shader_features.register::<CameraInfoFeature>(&device);
+        let transform_feature = shader_features.register::<TransformFeature>(&device);
+        let diffuse_texture_feature = shader_features.register::<DiffuseTextureFeature>(&device);
+        let diffuse_color_feature = shader_features.register::<DiffuseColorFeature>(&device);
+        let gbuffer_textures_feature = shader_features.register::<GBufferTexturesFeature>(&device);
+        let lights_data_feature = shader_features.register::<LightsDataFeature>(&device);
+        let transparent_material_dt_feature = shader_features.register::<TransparentMaterialFeatureDT>(&device);
+        let transparent_material_dc_feature = shader_features.register::<TransparentMaterialFeatureDC>(&device);
+
+        let mut shader_registry = ShaderRegistry::new(shader_features);
+        shader_registry.add_material(
+            &device, 
+            "write_gbuffers_dt", 
+            wgpu::ShaderSource::Wgsl(include_str!("../../shaders/common/gbuffer.wgsl").into()), 
+            vec![camera_feature, transform_feature, diffuse_texture_feature], 
+            &[GBufferVertex::layout()]
+        );
+        shader_registry.add_material(
+            &device, 
+            "write_gbuffers_dc", 
+            wgpu::ShaderSource::Wgsl(include_str!("../../shaders/common/no-texture-write-gbuffers.wgsl").into()), 
+            vec![camera_feature, transform_feature, diffuse_color_feature], 
+            &[GBufferVertex::layout()]
+        );
+
+        shader_registry.add_global(
+            &device, 
+            "lighting", 
+            wgpu::ShaderSource::Wgsl(include_str!("../../shaders/common/deferred.wgsl").into()), 
+            vec![gbuffer_textures_feature, camera_feature, lights_data_feature]
+        );
+
+        shader_registry.add_material(
+            &device, 
+            "alpha_dt", 
+            wgpu::ShaderSource::Wgsl(include_str!("../../shaders/common/alpha.wgsl").into()), 
+            vec![camera_feature, transform_feature, transparent_material_dt_feature, lights_data_feature], 
+            &[GBufferVertex::layout()]
+        );
+        shader_registry.add_material(
+            &device, 
+            "alpha_dc", 
+            wgpu::ShaderSource::Wgsl(include_str!("../../shaders/common/no-texture-alpha.wgsl").into()), 
+            vec![camera_feature, transform_feature, transparent_material_dc_feature, lights_data_feature], 
+            &[GBufferVertex::layout()]
+        );
+
         let texture_registry = TextureRegistry::new(window_size.width, window_size.height);
         let buffer_registry = BufferRegistry::new();
         let pipeline_manager = PipelineManager::new();
@@ -88,9 +145,11 @@ impl<'a> Context {
             texture_registry,
             buffer_registry,
             pipeline_manager,
+            shader_registry,
         }
     }
 
+    /// Create and get the device
     async fn get_device(instance: &wgpu::Instance, surface: &wgpu::Surface<'static>) -> (wgpu::Device, wgpu::Queue, wgpu::SurfaceCapabilities) {
         let adapter = 
             instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -118,8 +177,10 @@ impl<'a> Context {
             .unwrap();
 
         let capabilities = surface.get_capabilities(&adapter);
-return (device, queue, capabilities); }
+        return (device, queue, capabilities); 
+    }
 
+    /// Find the preferable present mode if present
     pub fn find_present_mode(present_modes: &[wgpu::PresentMode]) -> wgpu::PresentMode {
         for present_mode in present_modes {
             if *present_mode == wgpu::PresentMode::Immediate {
@@ -136,6 +197,7 @@ return (device, queue, capabilities); }
         wgpu::PresentMode::Fifo
     }
 
+    /// Update the dimensions for systems dependent on them.
     pub fn update_dimensions(&mut self, width: u32, height: u32) {
         if width != 0 && height != 0 {
             self.surface_config.width = width;
@@ -147,6 +209,8 @@ return (device, queue, capabilities); }
         }
     }
 
+    /// Begin frame behavior for graphics context.
+    /// Get the command encoders and other frame resources
     pub fn begin_frame(&self) -> Result<Option<FrameResource>, SurfaceError> {
         if !self.surface_configured {
             return Ok(None);
@@ -168,6 +232,8 @@ return (device, queue, capabilities); }
         }))
     }
 
+    /// End frame behavior for the context.
+    /// Submits resources and presents to output
     pub fn end_frame(&self, frame_resource: FrameResource) {
         let encoder = frame_resource.encoder;
         let output = frame_resource.output;
@@ -181,6 +247,7 @@ return (device, queue, capabilities); }
         self.texture_registry.create_texture(&self.device, descriptor, sampler_options)
     }
 
+    /// Write data to an existing texture
     pub fn write_texture(&self, handle: TextureHandle, data: &[u8], size: wgpu::Extent3d, bytes_per_pixel: u32) {
         let texture = self.texture_registry.get_texture(handle);
         match texture {
@@ -204,22 +271,27 @@ return (device, queue, capabilities); }
         }
     }
 
+    /// Create a buffer on the gpu and get its corresonding handle
     pub fn create_buffer(&mut self, usages: wgpu::BufferUsages, data: &[u8]) -> BufferHandle {
         self.buffer_registry.create_buffer(&self.device, usages, data)
     }
 
+    /// Get a reference to an existing buffer
     pub fn get_buffer(&self, handle: BufferHandle) -> Option<&wgpu::Buffer> {
         self.buffer_registry.get_buffer(handle)
     }
 
+    /// Get the usages for an exsiting buffer
     pub fn get_buffer_usages(&self, handle: BufferHandle) -> Option<&wgpu::BufferUsages> {
         self.buffer_registry.get_usages(handle)
     }
 
+    /// Write new data to an existing buffer
     pub fn write_buffer(&self, handle: BufferHandle, offset: u64, data: &[u8]) {
         self.buffer_registry.write_buffer(handle, &self.queue, offset, data);
     }
 
+    // TODO: remove?
     pub fn create_uniform_buffer(&mut self, usages: wgpu::BufferUsages, data: &[u8]) -> ResourceId {
         let uniform_buffer = UniformBuffer::new(&self.device, usages, data);
 
@@ -275,12 +347,34 @@ return (device, queue, capabilities); }
         self.resources.get(id)
     }
 
-
     pub fn request_pipeline(&mut self, requirements: &PipelineRequestInfo) -> PipelineHandle {
         self.pipeline_manager.request_pipeline(&self.device, requirements)
     }
 
     pub fn get_pipeline(&self, handle: PipelineHandle) -> Option<&wgpu::RenderPipeline> {
         self.pipeline_manager.get_pipeline(handle)
+    }
+
+
+    pub fn get_shader_feature<F: ShaderFeature>(&self) -> Option<&resource::ShaderFeatureEntry> {
+        self.shader_registry.get_feature::<F>()
+    }
+
+    pub fn get_shader_feature_id<F: ShaderFeature>(&self) -> Option<resource::ShaderFeatureId> {
+        self.shader_registry.get_feature_id::<F>()
+    }
+
+    pub fn get_material(&self, features: &[ShaderFeatureId], vertex_layouts: &[wgpu::VertexBufferLayout<'static>]) -> Option<&ShaderResource> {
+        self.shader_registry.get_material(features, vertex_layouts)
+    }
+
+    pub fn create_material_bind_group<F: ShaderFeature>(&self, entries: &[wgpu::BindGroupEntry]) -> wgpu::BindGroup {
+        let layout = self.device.create_bind_group_layout(&F::layout_descriptor());
+
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &layout,
+            entries
+        })
     }
 }
